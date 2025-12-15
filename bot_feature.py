@@ -66,7 +66,7 @@ def determine_roll(stats_dict: dict, normalized_raw: float) -> int:
 
 # --- АНАЛИЗ ОРУЖИЯ ---
 
-async def yes_handler(update, context: ContextTypes.DEFAULTTYPE):
+async def yes_handler(update, context: ContextTypes.DEFAULT_TYPE):
     """Реагирует на сообщение 'да' в любом виде и в любом топике/чате."""
     if not update.effective_message or not update.effective_message.text:
         return
@@ -438,4 +438,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
