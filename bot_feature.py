@@ -1,6 +1,8 @@
 # bot_feature.py
 
 import math
+import re  # ### NEW: Для регулярных выражений
+import unicodedata  # ### NEW: Для понимания "странных" шрифтов
 from telegram.ext import (
     Application,
     ContextTypes,
@@ -64,19 +66,40 @@ def determine_roll(stats_dict: dict, normalized_raw: float) -> int:
     return best_roll
 
 
-# --- АНАЛИЗ ОРУЖИЯ ---
+# --- АНАЛИЗ ОРУЖИЯ И ОБРАБОТЧИК "ДА" ---
+
+# ### NEW: Кастомный фильтр для умного распознавания "Да"
+class FilterSmartDa(filters.UpdateFilter):
+    def filter(self, update):
+        if not update.message or not update.message.text:
+            return False
+
+        # 1. Нормализация (превращает 𝕕𝕒, 𝓓𝓪 и прочие шрифты в обычный текст)
+        text = unicodedata.normalize('NFKC', update.message.text)
+
+        # 2. Регулярное выражение
+        # (?i) - игнорировать регистр (Da, dA)
+        # (?:^|\W) - начало строки ИЛИ не буква (чтобы не триггерилось на "Лада")
+        # [дd] - русская Д или английская D
+        # [аa]+ - русская А или английская A (одна или более, для "Даааа")
+        # [\W\s]*$ - любые знаки препинания или пробелы в конце строки
+        pattern = r'(?i)(?:^|\W)[дd][аa]+[\W\s]*$'
+
+        return bool(re.search(pattern, text))
+
+
+smart_da_filter = FilterSmartDa()
+
 
 async def yes_handler(update, context: ContextTypes.DEFAULT_TYPE):
-    """Реагирует на сообщение 'да' в любом виде и в любом топике/чате."""
-    if not update.effective_message or not update.effective_message.text:
+    """Реагирует на 'да', так как фильтрация уже прошла в smart_da_filter."""
+    # Проверка на пустое сообщение на всякий случай
+    if not update.effective_message:
         return
 
-    text = update.effective_message.text.strip().lower()
+    # Сразу отвечаем, так как фильтр уже проверил, что это "то самое да"
+    await update.effective_message.reply_text("Елда")
 
-    # Проверяем, что сообщение состоит ТОЛЬКО из слова "да" (в любом регистре)
-    if text == "да":
-        # Ответим прямо в том же сообщении/топике, где написали "да"
-        await update.effective_message.reply_text("Елда")
 
 async def analyze_weapon(update, context: ContextTypes.DEFAULT_TYPE, item_key: str):
     if not is_allowed_thread(update):
@@ -210,17 +233,13 @@ async def analyze_armor(update, context: ContextTypes.DEFAULT_TYPE, item_key: st
         await update.message.reply_text(f"Ошибка: {e}")
 
 
-# --- ФУНКЦИЯ: АНАЛИЗ ПОЛНОГО СЕТА (ОБНОВЛЕНА) ---
+# --- ФУНКЦИЯ: АНАЛИЗ ПОЛНОГО СЕТА ---
 
 async def analyze_full_set(update, context: ContextTypes.DEFAULT_TYPE, item_key: str):
     if not is_allowed_thread(update):
         return
 
     try:
-        # Ожидаем 9 аргументов:
-        # 0-2: ХП (Шлем, Грудь, Ноги)
-        # 3-5: Уровни (Шлем, Грудь, Ноги)
-        # 6-8: Corrupted y/n (Шлем, Грудь, Ноги)
         args = context.args
         if len(args) != 9:
             await update.message.reply_text(
@@ -240,32 +259,20 @@ async def analyze_full_set(update, context: ContextTypes.DEFAULT_TYPE, item_key:
         total_hp_display = 0.0
         results = []
 
-        # Индексы аргументов
-        # ХП: 0, 1, 2
-        # УР: 3, 4, 5
-        # Y/N: 6, 7, 8
-
         for i, part_key in enumerate(parts_order):
-            # Парсинг
             hp = float(args[i])
             level = int(args[i + 3])
             is_corr = args[i + 6].lower() == 'y'
 
             total_hp_display += hp
-
-            # Расчеты
             calc_hp = hp if not is_corr else hp / 1.5
 
-            # Золото
             spent = calculate_gold(b1, level)
             total_needed = calculate_gold(b1, max_lvl)
             rem = max(0, total_needed - spent)
 
-            # Ролл
             norm_raw, _ = normalize_stat(calc_hp, level)
             roll = determine_roll(stats_db[part_key], norm_raw)
-
-            # Базовое HP
             base_hp = stats_db[part_key][roll]
 
             results.append({
@@ -278,28 +285,22 @@ async def analyze_full_set(update, context: ContextTypes.DEFAULT_TYPE, item_key:
                 "base_hp": base_hp
             })
 
-        # --- СБОРКА СООБЩЕНИЯ ---
         response = f"🛡️ <b>Анализ сета: {item_info['name']}</b>\n"
         response += f"TOTAL HEALTH: <code>{total_hp_display:,.1f}</code> ❤️\n\n"
 
-        # --- НОВАЯ СЕКЦИЯ: Базовое HP ---
         response += "<b>BASE HP</b>\n"
         for res in results:
             response += f"{res['rus_nom']}: <code>{int(res['base_hp']):,}</code>\n"
         response += "\n"
-        # --------------------------------
 
-        # Секция UPG
         response += "<b>🆙 UPG</b>\n"
         for res in results:
             response += f"{res['rus_name']}: <code>{res['lvl']}</code>\n"
 
-        # Секция GOLD
         response += "\n<b>💰 GOLD (Spent / Left to spend)</b>\n"
         for res in results:
             response += f"{res['rus_nom']}: <code>{res['spent']:,}</code> / <code>{res['rem']:,}</code>\n"
 
-        # Секция ROLL
         response += "\n<b>🎲 ROLL</b>\n"
         for res in results:
             response += f"{res['rus_name']}: <b>{res['roll']}/11</b>\n"
@@ -385,25 +386,21 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
     context.args = parts[1:]
     context.command = command
 
-    # Оружие
     if command == "conq":
         await analyze_weapon(update, context, "cb")
     elif command == "doom":
         await analyze_weapon(update, context, "db")
 
-    # Броня по отдельности
     elif command in ("fzhelm", "fzchest", "fzleg"):
         await analyze_armor(update, context, "fzh")
     elif command in ("zhelm", "zchest", "zleg"):
         await analyze_armor(update, context, "lzs")
 
-    # Полные сеты
     elif command == "fzset":
         await analyze_full_set(update, context, "fzh")
     elif command == "zset":
         await analyze_full_set(update, context, "lzs")
 
-    # Инфо
     elif command == "reforge":
         await cmd_reforge(update, context)
     elif command == "conqr":
@@ -421,16 +418,15 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(TOKEN).build()
 
-    # Добавляем обработчик для "да" с высоким приоритетом (group=0)
+    # ### NEW: Используем наш новый умный фильтр smart_da_filter
     app.add_handler(
         MessageHandler(
-            filters.TEXT & ~filters.COMMAND & filters.Regex(r'^[Дд][Аа]\s*$'),
+            filters.TEXT & ~filters.COMMAND & smart_da_filter,
             yes_handler
         ),
         group=0
     )
 
-    # Основной обработчик команд !conq, !fzset и т.д.
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, bang_router))
 
     print("Бот запущен...")
@@ -438,5 +434,4 @@ def main():
 
 
 if __name__ == "__main__":
-
     main()
