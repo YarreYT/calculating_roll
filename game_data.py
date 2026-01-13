@@ -54,8 +54,20 @@ reforges = [
     {"name": "Murderous", "dmg": "-10%", "crit": "-10%", "knk": "-30%"}
 ]
 
+WOODEN_SWORD_THRESHOLD_PERCENT = 4.7619
+ASC_BASE_UPGRADE_COST = 2917
+
+# Заменить ASC_WEAPON_TYPES на:
+ASC_WEAPON_TYPES = {
+    'ws': {"name": "Wooden Sword V2", "base_dmg": 10395, "fixed_roll": True, "has_rolls": False},
+    'mb': {"name": "Menta Blade V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'lk': {"name": "Lightning Katana V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'me': {"name": "Magma's Edge V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'pt': {"name": "Poseidon's Trident V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'dd': {"name": "Dual Daggers V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+}
+
 # --- D. СИСТЕМА СОПОСТАВЛЕНИЯ ДАННЫХ И СТОИМОСТИ ---
-# ДОБАВЛЕНО: max_level для каждого предмета
 ITEMS_MAPPING = {
     "cb": {
         "name": "Conqueror's Blade",
@@ -70,6 +82,54 @@ ITEMS_MAPPING = {
         "type": "weapon",
         "upgrade_cost_lvl1": 2112,
         "max_level": 34
+    },
+    "asc_ws": {
+        "name": "Wooden Sword V2",
+        "stats": {11: 10395},  # Только ролл 11
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "ws"
+    },
+    "asc_mb": {
+        "name": "Menta Blade V2",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "mb"
+    },
+    "asc_lk": {
+        "name": "Lightning Katana V2",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "lk"
+    },
+    "asc_me": {
+        "name": "Magma's Edge V2",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "me"
+    },
+    "asc_pt": {
+        "name": "Poseidon's Trident V2",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "pt"
+    },
+    "asc_dd": {
+        "name": "Dual Daggers V2",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 45,
+        "weapon_key": "dd"
     },
     "fzh": {
         "name": "Furious Zeus Set (Mythic)",
@@ -86,10 +146,9 @@ ITEMS_MAPPING = {
         "max_level": 34
     },
 }
-
 # Маппинг частей брони
 PART_MAPPING = {
     "helm": "Helmet",
     "chest": "Chestplate",
-    "leg": "Leggings"
+    "legs": "Leggings"   # ← добавь это
 }
