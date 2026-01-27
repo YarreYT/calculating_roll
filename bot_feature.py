@@ -718,13 +718,14 @@ async def yes_handler(update, context: ContextTypes.DEFAULT_TYPE):
         "Елда": 20, "Пизда": 1, "Джигурда": 10, "Звезда": 20,
         "Поезда": 20, "Дабудидабуда": 20, "Борода": 20, "Слобода": 20,
         "Узда": 20, "Вода": 10, "Манда": 20, "Караганда": 10,
-        "Чехарда": 10, "MUDA": 1
+        "Чехарда": 10, "MUDA": 1, "Балда": 10
     }
     # Прямые ссылки на изображения
     photo_urls = {
         "Пизда": "https://sun9-48.userapi.com/impg/c844418/v844418142/4f7ef/wk7pnm_dqkY.jpg?size=487x487&quality=96&sign=29e3dacedac2c03eaa320ee2403f8624&type=album ",
         "MUDA": "https://www.meme-arsenal.com/memes/e580d8c1ac6e6a7bc1c623bd7ab80dce.jpg ",
-        "Джигурда": "https://www.meme-arsenal.com/memes/03c918ccc821b8172f09c38ded2b8d57.jpg "
+        "Джигурда": "https://www.meme-arsenal.com/memes/03c918ccc821b8172f09c38ded2b8d57.jpg ",
+        "Балда": "https://www.meme-arsenal.com/memes/b5896035badfb0387000474e6526488c.jpg"
     }
     population = list(options.keys())
     weights = list(options.values())
