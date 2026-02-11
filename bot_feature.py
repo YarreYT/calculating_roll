@@ -25,10 +25,12 @@ from game_data import (
     LZS_STATS,
     ITEMS_MAPPING,
     PART_MAPPING,
-    WOODEN_SWORD_OLD_BASE,
-    WOODEN_SWORD_BUFF_MULTIPLIER,
+    WOODEN_SWORD_BASE,
     WOODEN_SWORD_THRESHOLD_PERCENT,  # ДОБАВЬТЕ ЭТУ КОНСТАНТУ
-    DUAL_DAGGERS_V2_STATS
+    DUAL_DAGGERS_V2_STATS,
+    TIMELOST_CONQUERORS_BLADE_STATS,
+    TIMELOST_CONQUERORS_BLADE_LE_STATS,
+    TIMELOST_THRESHOLD_PERCENT
 )
 
 from collections import deque
@@ -51,6 +53,9 @@ TOKEN = '8296615863:AAHWDGuMwqLOaGbLJ9xO9puwp8CDur8LNBQ'
 
 GROWTH_RATE = 1 / 21
 CALLBACK_CLOSE_REFORGE = "close_reforge"
+CALLBACK_PREFIX_TL = "tl"
+CALLBACK_PREFIX_WTL = "wtl"
+CALLBACK_PREFIX_LTL = "ltl"
 
 user_armor_data = {}  # {user_id: {command, data: {helm, chest, legs}, stage, item_key, max_level, user_msg_id, bot_msg_id}}
 
@@ -207,19 +212,17 @@ DUAL_DAGGERS_THRESHOLD_PERCENT = 4.7619
 def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge_mult: float) -> tuple:
     """Возвращает (base_dmg, roll, weapon_type) где weapon_type: 'ws', 'dd' или 'regular'"""
 
-    # 1. Проверка на Wooden Sword V2 (как раньше)
     inferred_base = infer_base_for_weapon(dmg, level, is_corrupted, reforge_mult)
 
     if inferred_base > 0:
-        percent_diff_ws = ((WOODEN_SWORD_OLD_BASE - inferred_base) / inferred_base) * 100
+        percent_diff_ws = abs(WOODEN_SWORD_BASE - inferred_base) / WOODEN_SWORD_BASE * 100
     else:
         percent_diff_ws = float('inf')
 
     if percent_diff_ws <= WOODEN_SWORD_THRESHOLD_PERCENT:
-        return WOODEN_SWORD_OLD_BASE, 11, "ws"
+        return WOODEN_SWORD_BASE, 11, "ws"  # Прямая база 11550
 
-    # 2. Проверка на Dual Daggers V2
-    # Находим ближайший ролл по inferred_base
+    # 2. Проверка на Dual Daggers V2 (без изменений)
     dd_best_roll = 6
     dd_best_diff = abs(DUAL_DAGGERS_V2_STATS[6] - inferred_base)
 
@@ -229,7 +232,6 @@ def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge
             dd_best_diff = diff
             dd_best_roll = r
 
-    # ПРАВИЛЬНУЮ проверку: насколько inferred_base отличается от базы DD
     dd_base_value = DUAL_DAGGERS_V2_STATS[dd_best_roll]
 
     if inferred_base > 0:
@@ -238,9 +240,9 @@ def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge
         percent_diff_dd = float('inf')
 
     if percent_diff_dd <= DUAL_DAGGERS_THRESHOLD_PERCENT:
-        return dd_base_value, dd_best_roll, "dd"  # Это Dual Daggers V2
+        return dd_base_value, dd_best_roll, "dd"
 
-    # 3. Обычные мечи (только 4 типа)
+    # 3. Обычные мечи (без изменений)
     best_roll = 6
     best_diff = abs(CONQUERORS_BLADE_STATS[6] - inferred_base)
 
@@ -251,6 +253,47 @@ def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge
             best_roll = r
 
     return CONQUERORS_BLADE_STATS[best_roll], best_roll, "regular"
+
+def find_timelost_type(inferred_base: float) -> tuple:
+    """
+    Определяет тип Timelost оружия.
+    Returns: (item_key, roll, base_dmg, is_le)
+    """
+    # Добавляем 4.7619% для проверки
+    check_value = inferred_base * (1 + TIMELOST_THRESHOLD_PERCENT / 100)
+
+    # Ищем ближайший ролл в обычном Timelost
+    best_roll_tl = 1
+    best_diff_tl = float('inf')
+
+    for roll in range(1, 12):
+        diff = abs(TIMELOST_CONQUERORS_BLADE_STATS[roll] - inferred_base)
+        if diff < best_diff_tl:
+            best_diff_tl = diff
+            best_roll_tl = roll
+
+    # Ищем ближайший ролл в L.E. версии
+    best_roll_le = 1
+    best_diff_le = float('inf')
+
+    for roll in range(1, 12):
+        diff = abs(TIMELOST_CONQUERORS_BLADE_LE_STATS[roll] - inferred_base)
+        if diff < best_diff_le:
+            best_diff_le = diff
+            best_roll_le = roll
+
+    # Получаем базовые значения
+    tl_base = TIMELOST_CONQUERORS_BLADE_STATS[best_roll_tl]
+    le_base = TIMELOST_CONQUERORS_BLADE_LE_STATS[best_roll_le]
+
+    # Проверка: check_value >= базе L.E.?
+    # Используем ближайший ролл L.E. для сравнения
+    if check_value >= le_base:
+        # Это Limited Edition
+        return "tl_le", best_roll_le, le_base, True
+    else:
+        # Это обычный Timelost
+        return "tl", best_roll_tl, tl_base, False
 
 async def _send_error(update: Update, context: ContextTypes.DEFAULT_TYPE,
                       error_message: str, _) -> bool:
@@ -594,7 +637,7 @@ async def _handle_wasc_callback(query, data_parts, page):
         return
 
     item_key = data_parts[1]
-    weapon_roll = int(data_parts[4])  # roll для конкретного меча
+    weapon_roll = int(data_parts[4])
     upg = int(data_parts[5])
     corr = data_parts[6] == 'y'
     reforge_n = data_parts[7]
@@ -604,14 +647,9 @@ async def _handle_wasc_callback(query, data_parts, page):
     reforge_mult = REFORGE_MODIFIERS.get(reforge_n, 1.0)
     active_key = f"asc_{item_key}"
 
-    base_dmg = ITEMS_MAPPING[active_key]['stats'][weapon_roll if item_key != 'ws' else 11]
-    dmg = calculate_weapon_stat_at_level(base_dmg, upg, corr, reforge_mult)
-
     if page == "total":
-        text = generate_asc_total_page(active_key, dmg, upg, corr,
-                                       reforge_n, reforge_mult,
-                                       weapon_roll if item_key != 'ws' else 11,
-                                       base_dmg)
+        # Используем новую функцию в стиле TL
+        text = generate_asc_forecast_total_page(active_key, weapon_roll, upg, corr, reforge_n, reforge_mult)
     elif page == "process":
         item_info = ITEMS_MAPPING[active_key]
         text = generate_forecast_process_page(item_info, weapon_roll, upg, corr, reforge_n, reforge_mult)
@@ -643,7 +681,7 @@ async def _handle_lasc_callback(query, data_parts, page):
         return
 
     item_key = data_parts[1]
-    weapon_roll = int(data_parts[4])  # roll для конкретного меча
+    weapon_roll = int(data_parts[4])
     curr_upg = int(data_parts[5])
     curr_corr = data_parts[6] == 'y'
     curr_ref_n = data_parts[7]
@@ -658,16 +696,16 @@ async def _handle_lasc_callback(query, data_parts, page):
     active_key = f"asc_{item_key}"
 
     if page == "total":
-        text = generate_compare_total_page(
-            ITEMS_MAPPING[active_key], weapon_roll,
+        # Используем новую функцию в стиле TL
+        text = generate_asc_compare_total_page(
+            active_key, weapon_roll,
             curr_upg, curr_corr, curr_ref_mult, curr_ref_n,
-            des_upg, des_corr, des_ref_mult, des_ref_n)
+            des_upg, des_corr, des_ref_mult, des_ref_n
+        )
     elif page == "actual_process":
-        # ИСПРАВЛЕНИЕ: используем ПРЯМОЙ расчёт
         item_info = ITEMS_MAPPING[active_key]
         text = generate_compare_process_page(item_info, weapon_roll, curr_upg, curr_corr, curr_ref_mult, curr_ref_n, "Актуальные")
     elif page == "wished_process":
-        # ИСПРАВЛЕНИЕ: используем ПРЯМОЙ расчёт
         item_info = ITEMS_MAPPING[active_key]
         text = generate_compare_process_page(item_info, weapon_roll, des_upg, des_corr, des_ref_mult, des_ref_n, "Желаемые")
     else:
@@ -812,6 +850,99 @@ def generate_weapon_compare_keyboard(item_key, current_page, roll, curr_upg, cur
     ]
     return InlineKeyboardMarkup(keyboard)
 
+def generate_tl_analysis_keyboard(damage, upg, corr, reforge_name, user_msg_id,
+                                  roll, is_le, current_page="total"):
+    """Клавиатура для анализа Timelost (одна панель с Total/Process/Tablet)"""
+    corr_str = 'y' if corr else 'n'
+    ref_str = reforge_name if reforge_name != "None" else "None"
+
+    # Формат: tl:{item_key}:page:dmg:upg:corr:reforge:roll:is_le:user_msg_id
+    base = f"tl:{{}}:{int(damage)}:{upg}:{corr_str}:{ref_str}:{roll}:{int(is_le)}:{user_msg_id}"
+
+    total_text = "✓ Total" if current_page == "total" else "Total"
+    process_text = "✓ Process" if current_page == "process" else "Process"
+    tablet_text = "✓ Tablet" if current_page == "tablet" else "Tablet"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(total_text, callback_data=base.format("total")),
+            InlineKeyboardButton(process_text, callback_data=base.format("process")),
+            InlineKeyboardButton(tablet_text, callback_data=base.format("tablet")),
+        ],
+        [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def generate_wtl_forecast_keyboard(original_roll, upg, corr, reforge_name, user_msg_id,
+                                   current_page="total"):
+    """Клавиатура для прогноза Timelost (TL и L.E. рядом)"""
+    corr_str = 'y' if corr else 'n'
+    ref_str = reforge_name if reforge_name != "None" else "None"
+
+    # TL: wtl:tl:page:dmg:roll:upg:corr:reforge:original_roll:user_msg_id
+    # LE: wtl:le:page:dmg:roll:upg:corr:reforge:original_roll:user_msg_id
+    dummy_dmg = 0
+
+    base_tl = f"wtl:tl:{{}}:{dummy_dmg}:{original_roll}:{upg}:{corr_str}:{ref_str}:{original_roll}:{user_msg_id}"
+    base_le = f"wtl:le:{{}}:{dummy_dmg}:{original_roll}:{upg}:{corr_str}:{ref_str}:{original_roll}:{user_msg_id}"
+
+    tl_total = "✓ TL Total" if current_page == "tl_total" else "TL Total"
+    tl_proc = "✓ TL Process" if current_page == "tl_process" else "TL Process"
+    le_total = "✓ L.E. Total" if current_page == "le_total" else "L.E. Total"
+    le_proc = "✓ L.E. Process" if current_page == "le_process" else "L.E. Process"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(tl_total, callback_data=base_tl.format("tl_total")),
+            InlineKeyboardButton(tl_proc, callback_data=base_tl.format("tl_process")),
+        ],
+        [
+            InlineKeyboardButton(le_total, callback_data=base_le.format("le_total")),
+            InlineKeyboardButton(le_proc, callback_data=base_le.format("le_process")),
+        ],
+        [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def generate_ltl_compare_keyboard(roll, curr_upg, curr_corr, curr_ref,
+                                  des_upg, des_corr, des_ref, user_msg_id,
+                                  current_page="total"):
+    """Клавиатура для сравнения Timelost (TL и L.E. с Actual/Wished)"""
+    curr_corr_str = 'y' if curr_corr else 'n'
+    des_corr_str = 'y' if des_corr else 'n'
+    curr_ref_str = curr_ref if curr_ref != "None" else "None"
+    des_ref_str = des_ref if des_ref != "None" else "None"
+
+    dummy_dmg = 0
+
+    # Формат: ltl:{type}:page:dmg:roll:curr_upg:curr_corr:curr_ref:des_upg:des_corr:des_ref:original_roll:user_msg_id
+    base_tl = f"ltl:tl:{{}}:{dummy_dmg}:{roll}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
+    base_le = f"ltl:le:{{}}:{dummy_dmg}:{roll}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
+
+    # TL кнопки
+    tl_total = "✓ TL Total" if current_page == "tl_total" else "TL Total"
+    tl_actual = "✓ < Actual" if current_page == "tl_actual" else "< Actual"
+    tl_wished = "✓ < Wished" if current_page == "tl_wished" else "< Wished"
+
+    # LE кнопки
+    le_total = "✓ L.E. Total" if current_page == "le_total" else "L.E. Total"
+    le_actual = "✓ < Actual" if current_page == "le_actual" else "< Actual"
+    le_wished = "✓ < Wished" if current_page == "le_wished" else "< Wished"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(tl_total, callback_data=base_tl.format("tl_total")),
+            InlineKeyboardButton(tl_actual, callback_data=base_tl.format("tl_actual")),
+            InlineKeyboardButton(tl_wished, callback_data=base_tl.format("tl_wished")),
+        ],
+        [
+            InlineKeyboardButton(le_total, callback_data=base_le.format("le_total")),
+            InlineKeyboardButton(le_actual, callback_data=base_le.format("le_actual")),
+            InlineKeyboardButton(le_wished, callback_data=base_le.format("le_wished")),
+        ],
+        [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def generate_total_page(item_info, dmg, upg, corr, reforge_name, reforge_mult, roll, base_dmg):
     max_lvl = item_info['max_level']
@@ -839,14 +970,13 @@ def generate_process_page(item_info, dmg, upg, corr, reforge_name, reforge_mult,
     steps = []
     current = float(dmg)
 
-    steps.append(f"🧮 <b>Детальные вычисления: {item_info['name']}</b>\n\n")
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']}</b>\n\n")
 
     if reforge_mult != 1.0:
         steps.append(f"<b>1. Убираем Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
         steps.append(f"<i>  {current:,.2f} ÷ {reforge_mult:.2f} = {current / reforge_mult:,.2f}</i>")
         current = current / reforge_mult
         steps.append("")
-
     if corr:
         steps.append("<b>2. Убираем Corrupted (×1.5):</b>")
         steps.append(f"<i>  {current:,.2f} ÷ 1.50 = {current / 1.5:,.2f}</i>")
@@ -918,7 +1048,7 @@ def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, refor
     dmg_increase = target_dmg - current_dmg
 
     return (
-        f"📈 <b>Прогноз: {item_info['name']}</b>\n\n"
+        f"📊 <b>Прогноз {item_info['name']}</b>\n\n"
         f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,}</i>\n\n"
         f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
         f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
@@ -931,101 +1061,102 @@ def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, refor
 
 
 def generate_forecast_process_page(item_info, roll, upg, corr, reforge_name, reforge_mult):
-    base_dmg = item_info['stats'][roll]
-    steps = []
-    steps.append(f"🧮 <b>Детальные вычисления: {item_info['name']}</b>\n\n")
+    """Прогноз Process - упрощён для Wooden Sword"""
+    # Для Wooden Sword используем WOODEN_SWORD_BASE
+    if item_info.get('weapon_key') == 'ws':
+        base_dmg = WOODEN_SWORD_BASE
+    else:
+        base_dmg = item_info['stats'][roll]
 
-    # Шаг 1: Расчет с фактором роста
+    steps = []
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']}</b>\n\n")
+
+    # Шаг 1: База
+    steps.append(f"<b>1. Базовый урон:</b>")
+    steps.append(f"<i>  {base_dmg:,.2f}</i>\n")
+
+    # Шаг 2: Рост
     growth_factor = 1 + GROWTH_RATE * upg
     base_value = base_dmg * growth_factor
-    steps.append("<b>1. Расчет общего урона:</b>")
+    steps.append("<b>2. Расчет общего урона:</b>")
     steps.append(f"<i>  Фактор роста = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
-    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>")
-    steps.append("")
+    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>\n")
 
-    # Шаг 2: Corrupted
+    # Шаг 3: Corrupted
     corr_mult = 1.5 if corr else 1.0
     corr_value = base_value * corr_mult
     corr_text = "Да (×1.5)" if corr else "Нет (×1.0)"
-    steps.append(f"<b>2. Умножаем на Corrupted ({corr_text}):</b>")
-    steps.append(f"<i>  {base_value:,.2f} × {corr_mult:.2f} = {corr_value:,.2f}</i>")
-    steps.append("")
+    steps.append(f"<b>3. Умножаем на Corrupted ({corr_text}):</b>")
+    steps.append(f"<i>  {base_value:,.2f} × {corr_mult:.2f} = {corr_value:,.2f}</i>\n")
 
-    # Шаг 3: Reforge
+    # Шаг 4: Reforge
     if reforge_mult != 1.0:
         ref_value = corr_value * reforge_mult
-        steps.append(f"<b>3. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
-        steps.append(f"<i>  {corr_value:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>")
-        steps.append("")
+        steps.append(f"<b>4. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
+        steps.append(f"<i>  {corr_value:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>\n")
         final_dmg = ref_value
     else:
         final_dmg = corr_value
-        steps.append("<b>3. Reforge: Нет (×1.00)</b>")
-        steps.append("")
+        steps.append("<b>4. Reforge: Нет (×1.00)</b>\n")
 
-    # Для ASC Wooden Sword добавляем бафф
-    if item_info.get('type') == 'asc_weapon' and item_info.get('weapon_key') == 'ws':
-        steps.append("<b>4. Игровые условности, бафф Wooden Sword (×1.111111):</b>")
-        buffed_dmg = final_dmg * WOODEN_SWORD_BUFF_MULTIPLIER
-        steps.append(f"<i>  {final_dmg:,.2f} × {WOODEN_SWORD_BUFF_MULTIPLIER} = {buffed_dmg:,.2f}</i>\n")
-        steps.append(f"<b>✓ Итоговый урон:</b> <i>{buffed_dmg:,.0f}</i>")
-    else:
-        steps.append(f"<b>✓ Итоговый урон = {final_dmg:,.0f}</b>")
+    # УБРАН шаг с баффом Wooden Sword - его больше нет
+    steps.append(f"<b>✓ Итоговый урон = {final_dmg:,.0f}</b>")
 
     return "\n".join(steps)
 
 
 def generate_compare_process_page(item_info, roll, upg, corr, reforge_mult, reforge_name, state):
-    base_dmg = item_info['stats'][roll]
-    steps = []
-    steps.append(f"🧮 <b>Детальные вычисления: {item_info['name']} ({state})</b>\n\n")
+    """Сравнение Process - упрощён для Wooden Sword"""
+    # Для Wooden Sword используем WOODEN_SWORD_BASE
+    if item_info.get('weapon_key') == 'ws':
+        base_dmg = WOODEN_SWORD_BASE
+    else:
+        base_dmg = item_info['stats'][roll]
 
-    # Шаг 1: Расчет с фактором роста
+    steps = []
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']} ({state})</b>\n\n")
+
+    # Шаг 1: База
+    steps.append(f"<b>1. Базовый урон:</b>")
+    steps.append(f"<i>  {base_dmg:,.2f}</i>\n")
+
+    # Шаг 2: Рост
     growth_factor = 1 + GROWTH_RATE * upg
     base_value = base_dmg * growth_factor
-    steps.append("<b>1. Расчет общего урона:</b>")
+    steps.append("<b>2. Расчет общего урона:</b>")
     steps.append(f"<i>  Фактор роста = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
-    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>")
-    steps.append("")
+    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>\n")
 
-    # Шаг 2: Corrupted
+    # Шаг 3: Corrupted
     corr_mult = 1.5 if corr else 1.0
     corr_value = base_value * corr_mult
     corr_text = "Да (×1.5)" if corr else "Нет (×1.0)"
-    steps.append(f"<b>2. Умножаем на Corrupted ({corr_text}):</b>")
-    steps.append(f"<i>  {base_value:,.2f} × {corr_mult:.2f} = {corr_value:,.2f}</i>")
-    steps.append("")
+    steps.append(f"<b>3. Умножаем на Corrupted ({corr_text}):</b>")
+    steps.append(f"<i>  {base_value:,.2f} × {corr_mult:.2f} = {corr_value:,.2f}</i>\n")
 
-    # Шаг 3: Reforge
+    # Шаг 4: Reforge
     if reforge_mult != 1.0:
         ref_value = corr_value * reforge_mult
-        steps.append(f"<b>3. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
-        steps.append(f"<i>  {corr_value:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>")
-        steps.append("")
+        steps.append(f"<b>4. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
+        steps.append(f"<i>  {corr_value:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>\n")
         final_dmg = ref_value
     else:
         final_dmg = corr_value
-        steps.append("<b>3. Reforge: Нет (×1.00)</b>")
-        steps.append("")
+        steps.append("<b>4. Reforge: Нет (×1.00)</b>\n")
 
-    # Для ASC Wooden Sword добавляем бафф
-    if item_info.get('type') == 'asc_weapon' and item_info.get('weapon_key') == 'ws':
-        steps.append("<b>4. Игровые условности, бафф Wooden Sword (×1.111111):</b>")
-        buffed_dmg = final_dmg * WOODEN_SWORD_BUFF_MULTIPLIER
-        steps.append(f"<i>  {final_dmg:,.2f} × {WOODEN_SWORD_BUFF_MULTIPLIER} = {buffed_dmg:,.2f}</i>\n")
-        steps.append(f"<b>✓ Итоговый урон:</b> <i>{buffed_dmg:,.0f}</i>")
-    else:
-        steps.append(f"<b>✓ Итоговый урон = {final_dmg:,.0f}</b>")
+    # УБРАН шаг с баффом Wooden Sword
+    steps.append(f"<b>✓ Итоговый урон = {final_dmg:,.0f}</b>")
 
     return "\n".join(steps)
 
 def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
                                 des_upg, des_corr, des_ref_mult, des_ref_name):
-    base_dmg = item_info['stats'][roll]
-
-    # Для ASC Wooden Sword применяем бафф к базе (как в Process)
-    if item_info.get('type') == 'asc_weapon' and item_info.get('weapon_key') == 'ws':
-        base_dmg = base_dmg * WOODEN_SWORD_BUFF_MULTIPLIER
+    """Сравнение Total - упрощено для Wooden Sword"""
+    # Для Wooden Sword используем WOODEN_SWORD_BASE напрямую
+    if item_info.get('weapon_key') == 'ws':
+        base_dmg = WOODEN_SWORD_BASE
+    else:
+        base_dmg = item_info['stats'][roll]
 
     curr_dmg = calculate_weapon_stat_at_level(base_dmg, curr_upg, curr_corr, curr_ref_mult)
     curr_spent = calculate_gold(item_info['upgrade_cost_lvl1'], curr_upg)
@@ -1049,7 +1180,7 @@ def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_m
     pct_sign = "+" if dmg_diff >= 0 else ""
 
     return (
-        f"📊 <b>Сравнение: {item_info['name']}</b>\n\n"
+        f"📊 <b>Сравнение {item_info['name']}</b>\n\n"
         f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,}</i>\n\n"
         f"<b>🔸 Текущее состояние</b>\n"
         f"<b>UPG:</b> <i>{curr_upg}</i>\n"
@@ -1199,48 +1330,125 @@ def generate_asc_total_page(item_key, dmg, upg, corr, reforge_name, reforge_mult
     max_lvl = item_info['max_level']
     b1 = item_info['upgrade_cost_lvl1']
 
-    # Получаем базу
-    if base_dmg is None:
-        base_dmg = item_info['stats'][roll]
-
-    # Для WS применяем бафф к базе
-    calc_base_dmg = base_dmg
+    # Для Wooden Sword используем WOODEN_SWORD_BASE напрямую
     if item_key == "asc_ws":
-        calc_base_dmg = base_dmg * WOODEN_SWORD_BUFF_MULTIPLIER
+        calc_base_dmg = WOODEN_SWORD_BASE
+        display_roll = 11
+    else:
+        calc_base_dmg = base_dmg
+        display_roll = roll
 
     spent = calculate_gold(b1, upg)
     total_needed = calculate_gold(b1, max_lvl)
     remaining = max(0, total_needed - spent)
 
-    # Рассчитываем урон с учетом всех модификаторов
-    current_dmg = calculate_weapon_stat_at_level(calc_base_dmg, upg, corr, reforge_mult)
-
-    # Округляем BASE для отображения
-    display_base_dmg = round(calc_base_dmg, 2) if item_key == "asc_ws" else calc_base_dmg
-
+    # Оформление как у TL
     return (
         f"📊 <b>Анализ {item_info['name']}</b>\n\n"
-        f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{display_base_dmg:,}</i>\n\n"
+        f"<b>ROLL:</b> <i>{display_roll}/11</i> | <b>BASE:</b> <i>{calc_base_dmg:,.2f}</i>\n\n"
         f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
         f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
         f"<b>Upgrade:</b> <i>{upg}/{max_lvl}</i>\n\n"
-        f"<b>DMG:</b> <i>{int(current_dmg):,}</i>\n"
+        f"<b>DMG:</b> <i>{int(dmg):,}</i>\n"
         f"<b>Gold spent:</b> <i>{spent:,}</i> 💰\n"
         f"<b>Gold left:</b> <i>{remaining:,}</i> 💰"
     )
 
+def generate_asc_forecast_total_page(item_key, roll, upg, corr, reforge_name, reforge_mult):
+    """Прогноз Total для ASC — стиль как у TL"""
+    item_info = ITEMS_MAPPING[item_key]
+    max_lvl = item_info['max_level']
+    b1 = item_info['upgrade_cost_lvl1']
+
+    # Для Wooden Sword
+    if item_key == "asc_ws":
+        base_dmg = WOODEN_SWORD_BASE
+        display_roll = 11
+    else:
+        base_dmg = item_info['stats'][roll]
+        display_roll = roll
+
+    current_dmg = calculate_weapon_stat_at_level(base_dmg, 0, corr, reforge_mult)
+    target_dmg = calculate_weapon_stat_at_level(base_dmg, upg, corr, reforge_mult)
+    gold_needed = calculate_gold(b1, upg)
+    dmg_increase = target_dmg - current_dmg
+
+    return (
+        f"📊 <b>Прогноз {item_info['name']}</b>\n\n"
+        f"<b>ROLL:</b> <i>{display_roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,.2f}</i>\n\n"
+        f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
+        f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
+        f"<b>Target UPG:</b> <i>{upg}/{max_lvl}</i>\n\n"
+        f"<b>DMG at 0:</b> <i>{int(current_dmg):,}</i>\n"
+        f"<b>DMG at {upg}:</b> <i>{int(target_dmg):,}</i> ⚔️\n"
+        f"<b>DMG increase:</b> <i>+{int(dmg_increase):,}</i>\n"
+        f"<b>Gold needed:</b> <i>{gold_needed:,}</i> 💰"
+    )
+
+
+def generate_asc_compare_total_page(item_key, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
+                                    des_upg, des_corr, des_ref_mult, des_ref_name):
+    """Сравнение Total для ASC — стиль как у TL"""
+    item_info = ITEMS_MAPPING[item_key]
+
+    # Для Wooden Sword
+    if item_key == "asc_ws":
+        base_dmg = WOODEN_SWORD_BASE
+        display_roll = 11
+    else:
+        base_dmg = item_info['stats'][roll]
+        display_roll = roll
+
+    curr_dmg = calculate_weapon_stat_at_level(base_dmg, curr_upg, curr_corr, curr_ref_mult)
+    curr_spent = calculate_gold(item_info['upgrade_cost_lvl1'], curr_upg)
+
+    des_dmg = calculate_weapon_stat_at_level(base_dmg, des_upg, des_corr, des_ref_mult)
+    des_gold = calculate_gold(item_info['upgrade_cost_lvl1'], des_upg)
+    add_gold = max(0, des_gold - curr_spent)
+
+    upg_diff = des_upg - curr_upg
+    dmg_diff = des_dmg - curr_dmg
+    ref_mult_diff = des_ref_mult - curr_ref_mult
+
+    corr_diff_text = ""
+    if not curr_corr and des_corr:
+        corr_diff_text = " (активируется)"
+    elif curr_corr and not des_corr:
+        corr_diff_text = " ❌ (невозможно)"
+
+    dmg_sign = "+" if dmg_diff >= 0 else ""
+    pct_sign = "+" if dmg_diff >= 0 else ""
+
+    return (
+        f"📊 <b>Сравнение {item_info['name']}</b>\n\n"
+        f"<b>ROLL:</b> <i>{display_roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,.2f}</i>\n\n"
+        f"<b>🔸 Текущее состояние</b>\n"
+        f"<b>UPG:</b> <i>{curr_upg}</i>\n"
+        f"<b>Reforge:</b> <i>{curr_ref_name}</i> (x{curr_ref_mult:.2f})\n"
+        f"<b>Corrupted:</b> <i>{'Да' if curr_corr else 'Нет'}</i>\n"
+        f"<b>DMG:</b> <i>{int(curr_dmg):,}</i>\n"
+        f"<b>Gold spent:</b> <i>{curr_spent:,}</i> 💰\n\n"
+        f"<b>🔹 Желаемое состояние</b>\n"
+        f"<b>UPG:</b> <i>{des_upg} (+{upg_diff})</i>\n"
+        f"<b>Reforge:</b> <i>{des_ref_name}</i> (x{des_ref_mult:.2f}) {f'(+{ref_mult_diff:.2f})' if ref_mult_diff != 0 else ''}\n"
+        f"<b>Corrupted:</b> <i>{'Да' if des_corr else 'Нет'}{corr_diff_text}</i>\n"
+        f"<b>DMG:</b> <i>{int(des_dmg):,} ({dmg_sign}{int(dmg_diff):,})</i>\n\n"
+        f"<b>💰 Дополнительное золото:</b> <i>{add_gold:,}</i> 💰\n"
+        f"<b>📈 Прирост урона:</b> <i>{dmg_sign}{int(dmg_diff):,} ({pct_sign}{dmg_diff / curr_dmg * 100:.1f}%)</i>"
+    )
 
 def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, reforge_mult, state=""):
+    """Process страница для Ascended - упрощена для Wooden Sword"""
     item_info = ITEMS_MAPPING[item_key]
     base_stats = item_info['stats']
 
     state_text = f" ({state})" if state else ""
     steps = []
-    steps.append(f"🧮 <b>Детальные вычисления: {item_info['name']}{state_text}</b>\n\n")
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']}{state_text}</b>\n\n")
 
     current = float(final_dmg)
 
-    # Шаг 1: Убираем Reforge
+    # Шаг 1: Reforge
     if reforge_mult != 1.0:
         steps.append(f"<b>1. Убираем Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
         steps.append(f"<i>  {current:,.2f} ÷ {reforge_mult:.2f} = {current / reforge_mult:,.2f}</i>")
@@ -1249,7 +1457,7 @@ def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, refo
     else:
         steps.append("<b>1. Reforge: Нет (×1.00)</b>\n")
 
-    # Шаг 2: Убираем Corrupted
+    # Шаг 2: Corrupted
     if corr:
         steps.append("<b>2. Убираем Corrupted (×1.5):</b>")
         steps.append(f"<i>  {current:,.2f} ÷ 1.50 = {current / 1.5:,.2f}</i>")
@@ -1258,7 +1466,7 @@ def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, refo
     else:
         steps.append("<b>2. Corrupted: Нет (×1.00)</b>\n")
 
-    # Шаг 3: Убираем фактор роста
+    # Шаг 3: Фактор роста
     growth_factor = 1 + GROWTH_RATE * upg
     steps.append("<b>3. Расчёт базового урона:</b>")
     steps.append(f"<i>  Фактор роста = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
@@ -1267,30 +1475,22 @@ def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, refo
     steps.append("")
 
     # Шаг 4: Определение ролла
-    # Для Wooden Sword — показываем оба значения и правильное сравнение
+    # Для Wooden Sword - ТОЛЬКО показываем базу 11550, без деления/умножения
     if item_key == "asc_ws":
-        base_dmg_without_buff = base_stats[11]  # 10395
-        base_dmg_with_buff = inferred_base  # 11549.92
-
-        steps.append(f"<b>4. Игровые условности, дебафф Wooden Sword (:1.111111)</b>")
-        steps.append(f"<i>  База (с баффом): {base_dmg_with_buff:,.2f}</i>")
-        steps.append(f"<i>  База (без баффа): {base_dmg_without_buff:,.2f} (:1.111111)</i>")
+        steps.append(f"<b>4. Wooden Sword V2:</b>")
+        steps.append(f"<i>  Базовый урон: {WOODEN_SWORD_BASE:,.2f}</i>")
         steps.append("")
-
-        # Показываем правильное сравнение
-        comparison = "&gt;" if base_dmg_without_buff < base_dmg_with_buff else "&lt;"
-        steps.append(f"<i>  11 roll - {base_dmg_without_buff:8,.2f} {comparison} {base_dmg_with_buff:.2f} ←</i>")
+        steps.append(f"<i>  11 roll - {WOODEN_SWORD_BASE:8,.2f} ≈ {inferred_base:.2f} ←</i>")
         steps.append("")
-        steps.append(f"<b>✓ BASE DMG: {base_dmg_without_buff:,.0f}</b>")
+        steps.append(f"<b>✓ BASE DMG: {WOODEN_SWORD_BASE:,.0f}</b>")
 
         return "\n".join(steps)
 
-    # Для остальных мечей — сравниваем с роллами 6-11
+    # Для остальных мечей - без изменений
     steps.append(f"<b>4. Определение ролла:</b>")
     steps.append(f"<i>  Инференс: {inferred_base:.2f}</i>")
     steps.append("")
 
-    # Ищем ближайший ролл
     best_roll = 6
     best_diff = abs(base_stats[6] - inferred_base)
     for r in range(7, 12):
@@ -1299,7 +1499,6 @@ def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, refo
             best_diff = diff
             best_roll = r
 
-    # Показываем сравнение
     for r in range(6, 12):
         val = base_stats[r]
         symbol = "←" if r == best_roll else "  "
@@ -1313,18 +1512,20 @@ def generate_asc_process_page(item_key, final_dmg, upg, corr, reforge_name, refo
     return "\n".join(steps)
 
 def generate_asc_tablet_page(item_key, roll, corr, reforge_mult, reforge_name):
+    """Tablet страница для Ascended - упрощена для Wooden Sword"""
     item_info = ITEMS_MAPPING[item_key]
     max_lvl = item_info['max_level']
     b1 = item_info['upgrade_cost_lvl1']
 
-    # Получаем базовый урон (с баффом для Wooden Sword)
-    actual_roll = 11 if item_key == "asc_ws" else roll
-    base_dmg = item_info['stats'][actual_roll]
+    # Для Wooden Sword всегда ролл 11 и база 11550
     if item_key == "asc_ws":
-        base_dmg = base_dmg * WOODEN_SWORD_BUFF_MULTIPLIER
+        actual_roll = 11
+        base_dmg = WOODEN_SWORD_BASE
+    else:
+        actual_roll = roll
+        base_dmg = item_info['stats'][actual_roll]
 
-    # Ширина колонок: UPG (0-45) = 4, Gold (до ~300,968,446) = 14, DMG (до ~122,512.00) = 14
-    header = f"{'UPG':<4} | {'Gold':<12} | {'DMG':<14}"
+    header = f"{'UPG':<5} | {'Gold Cost':<11} | {'DMG':<14}"
     separator = "-" * len(header)
     rows = [header, separator]
     prev_gold = 0
@@ -1334,14 +1535,10 @@ def generate_asc_tablet_page(item_key, roll, corr, reforge_mult, reforge_name):
         level_cost = total_gold - prev_gold if level > 0 else 0
         prev_gold = total_gold
 
-        # Используем ту же формулу, что и Process/Total
         dmg_int = calculate_weapon_stat_at_level(base_dmg, level, corr, reforge_mult)
-
-        # Форматируем DMG с двумя знаками после запятой
         dmg_formatted = f"{dmg_int:.2f}"
 
-        # Выравнивание: левое для всех, разделители тысяч только для Gold
-        rows.append(f"{level:<4} | {level_cost:<12,} | {dmg_formatted:<14}")
+        rows.append(f"{level:<5} | {level_cost:<12,} | {dmg_formatted:<14}")
 
     table_content = "\n".join(rows)
     title_line = f"{item_info['name']} | ROLL {actual_roll}/11 | {'CORRUPTED' if corr else 'NORMAL'} | {reforge_name}"
@@ -1349,7 +1546,6 @@ def generate_asc_tablet_page(item_key, roll, corr, reforge_mult, reforge_name):
     clean_name = item_info['name'].replace(' ', '_').replace("'", '').upper()
     block_name = f"{clean_name}_TABLET"
     return f"```{block_name}\n{title_line}\n\n{table_content}\n```"
-
 
 def get_armor_stage_keyboard(stage: str, user_msg_id: int) -> InlineKeyboardMarkup:
     buttons = []
@@ -1413,7 +1609,7 @@ def generate_armor_process_page(item_info: dict,
     part_key = part_keys[part]
     base_stats = item_info['stats'][part_key]
 
-    steps = [f"🧮 <b>Детальные вычисления: {item_info['name']} — {part_names[part]}</b>\n\n"]
+    steps = [f"🧮 <b>Детальные вычисления {item_info['name']} — {part_names[part]}</b>\n\n"]
 
     if command in ('fz', 'z') and page_type == "process":
         # Анализ текущего состояния — ОБРАТНЫЙ РАСЧЁТ
@@ -1736,6 +1932,261 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
     return InlineKeyboardMarkup(buttons)
 
 
+def generate_tl_total_page(item_key, dmg, upg, corr, reforge_name, reforge_mult, roll, base_dmg):
+    """Total страница для Timelost — без type_suffix"""
+    item_info = ITEMS_MAPPING[item_key]
+    max_lvl = item_info['max_level']
+    b1 = item_info['upgrade_cost_lvl1']
+
+    spent = calculate_gold(b1, upg)
+    total_needed = calculate_gold(b1, max_lvl)
+    remaining = max(0, total_needed - spent)
+
+    return (
+        f"📊 <b>Анализ {item_info['name']}</b>\n\n"
+        f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,.2f}</i>\n\n"
+        f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
+        f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
+        f"<b>Upgrade:</b> <i>{upg}/{max_lvl}</i>\n\n"
+        f"<b>DMG:</b> <i>{int(dmg):,}</i>\n"
+        f"<b>Gold spent:</b> <i>{spent:,}</i> 💰\n"
+        f"<b>Gold left:</b> <i>{remaining:,}</i> 💰"
+    )
+
+def generate_tl_process_page(item_key, dmg, upg, corr, reforge_name, reforge_mult, roll, base_dmg, is_le):
+    """Process страница для Timelost — упрощённая как у ASC"""
+    item_info = ITEMS_MAPPING[item_key]
+    base_stats = item_info['stats']
+
+    steps = []
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']}</b>\n\n")
+
+    current = float(dmg)
+
+    # Шаг 1: Reforge
+    if reforge_mult != 1.0:
+        steps.append(f"<b>1. Убираем Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
+        steps.append(f"<i>  {current:,.2f} ÷ {reforge_mult:.2f} = {current / reforge_mult:,.2f}</i>")
+        current = current / reforge_mult
+        steps.append("")
+    else:
+        steps.append("<b>1. Reforge: Нет (×1.00)</b>\n")
+
+    # Шаг 2: Corrupted
+    if corr:
+        steps.append("<b>2. Убираем Corrupted (×1.5):</b>")
+        steps.append(f"<i>  {current:,.2f} ÷ 1.50 = {current / 1.5:,.2f}</i>")
+        current = current / 1.5
+        steps.append("")
+    else:
+        steps.append("<b>2. Corrupted: Нет (×1.00)</b>\n")
+
+    # Шаг 3: Фактор роста
+    growth_factor = 1 + GROWTH_RATE * upg
+    steps.append("<b>3. Расчёт базового урона:</b>")
+    steps.append(f"<i>  Фактор роста = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
+    steps.append(f"<i>  {current:,.2f} ÷ {growth_factor:.10f} = {current / growth_factor:,.2f}</i>")
+    inferred_base = current / growth_factor
+    steps.append("")
+
+    # Шаг 4: Определение ролла (просто показываем сравнение с базами текущего типа)
+    steps.append(f"<b>4. Определение ролла:</b>")
+    steps.append(f"<i>  Инференс: {inferred_base:.2f}</i>")
+    steps.append("")
+
+    # Показываем только базы текущего типа (TL или LE)
+    for r in range(1, 12):
+        val = base_stats[r]
+        symbol = "←" if r == roll else "  "
+        comparison = "&gt;" if val < inferred_base else "&lt;"
+        steps.append(f"<i>  {r:2} roll - {val:8,.2f} {comparison} {inferred_base:.2f} {symbol}</i>")
+
+    steps.append("")
+    steps.append(f"<b>✓ Выбран ролл:</b> <i>{roll}/11</i>\n")
+    steps.append(f"<b>✓ BASE DMG:</b> <i>{base_dmg:,.2f}</i>")
+
+    return "\n".join(steps)
+
+def generate_tl_tablet_page(item_key, roll, corr, reforge_mult, reforge_name):
+    """Tablet страница для Timelost — без type_suffix"""
+    item_info = ITEMS_MAPPING[item_key]
+    max_lvl = item_info['max_level']
+    b1 = item_info['upgrade_cost_lvl1']
+    base_dmg = item_info['stats'][roll]
+
+    header = f"{'UPG':<5} | {'Gold Cost':<11} | {'DMG':<12}"
+    separator = "-" * len(header)
+    rows = [header, separator]
+    prev_gold = 0
+
+    for level in range(0, max_lvl + 1):
+        total_gold = calculate_gold(b1, level)
+        level_cost = total_gold - prev_gold if level > 0 else 0
+        prev_gold = total_gold
+
+        dmg = calculate_weapon_stat_at_level(base_dmg, level, corr, reforge_mult)
+        rows.append(f"{level:<5} | {level_cost:<11,} | {int(dmg):<12,}")
+
+    table_content = "\n".join(rows)
+    title_line = f"{item_info['name']} | ROLL {roll}/11 | {'CORRUPTED' if corr else 'NORMAL'} | {reforge_name}"
+
+    clean_name = item_info['name'].replace(' ', '_').replace("'", '').upper()
+    block_name = f"{clean_name}_TABLET"
+    return f"```{block_name}\n{title_line}\n\n{table_content}\n```"
+
+def generate_tl_forecast_total_page(item_key, roll, upg, corr, reforge_name, reforge_mult):
+    """Прогноз Total для Timelost — без type_suffix"""
+    item_info = ITEMS_MAPPING[item_key]
+    max_lvl = item_info['max_level']
+    b1 = item_info['upgrade_cost_lvl1']
+    base_dmg = item_info['stats'][roll]
+
+    current_dmg = calculate_weapon_stat_at_level(base_dmg, 0, corr, reforge_mult)
+    target_dmg = calculate_weapon_stat_at_level(base_dmg, upg, corr, reforge_mult)
+    gold_needed = calculate_gold(b1, upg)
+    dmg_increase = target_dmg - current_dmg
+
+    return (
+        f"📊 <b>Прогноз {item_info['name']}</b>\n\n"
+        f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,.2f}</i>\n\n"
+        f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
+        f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
+        f"<b>Target UPG:</b> <i>{upg}/{max_lvl}</i>\n\n"
+        f"<b>DMG at 0:</b> <i>{int(current_dmg):,}</i>\n"
+        f"<b>DMG at {upg}:</b> <i>{int(target_dmg):,}</i> ⚔️\n"
+        f"<b>DMG increase:</b> <i>+{int(dmg_increase):,}</i>\n"
+        f"<b>Gold needed:</b> <i>{gold_needed:,}</i> 💰"
+    )
+
+def generate_tl_forecast_process_page(item_key, roll, upg, corr, reforge_name, reforge_mult):
+    """Прогноз Process для Timelost"""
+    item_info = ITEMS_MAPPING[item_key]
+    base_dmg = item_info['stats'][roll]
+
+    steps = []
+    steps.append(f"🧮 <b>Детальные вычисления {item_info['name']}</b>\n\n")
+
+    # Шаг 1: База
+    steps.append(f"<b>1. Базовый урон (ролл {roll}):</b>")
+    steps.append(f"<i>  {base_dmg:,.2f}</i>\n")
+
+    # Шаг 2: Фактор роста
+    growth_factor = 1 + GROWTH_RATE * upg
+    base_value = base_dmg * growth_factor
+    steps.append("<b>2. Применяем фактор роста:</b>")
+    steps.append(f"<i>  Фактор = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
+    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>\n")
+
+    # Шаг 3: Corrupted
+    if corr:
+        corr_value = base_value * 1.5
+        steps.append("<b>3. Умножаем на Corrupted (×1.5):</b>")
+        steps.append(f"<i>  {base_value:,.2f} × 1.50 = {corr_value:,.2f}</i>\n")
+        final = corr_value
+    else:
+        final = base_value
+        steps.append("<b>3. Corrupted: Нет (×1.00)</b>\n")
+
+    # Шаг 4: Reforge
+    if reforge_mult != 1.0:
+        ref_value = final * reforge_mult
+        steps.append(f"<b>4. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
+        steps.append(f"<i>  {final:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>\n")
+        final = ref_value
+    else:
+        steps.append("<b>4. Reforge: Нет (×1.00)</b>\n")
+
+    steps.append(f"<b>✓ Итоговый урон = {int(final):,}</b>")
+
+    return "\n".join(steps)
+
+
+def generate_tl_compare_total_page(item_key, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
+                                   des_upg, des_corr, des_ref_mult, des_ref_name):
+    """Сравнение Total для Timelost — без type_suffix"""
+    item_info = ITEMS_MAPPING[item_key]
+    base_dmg = item_info['stats'][roll]
+
+    curr_dmg = calculate_weapon_stat_at_level(base_dmg, curr_upg, curr_corr, curr_ref_mult)
+    curr_spent = calculate_gold(item_info['upgrade_cost_lvl1'], curr_upg)
+
+    des_dmg = calculate_weapon_stat_at_level(base_dmg, des_upg, des_corr, des_ref_mult)
+    des_gold = calculate_gold(item_info['upgrade_cost_lvl1'], des_upg)
+    add_gold = max(0, des_gold - curr_spent)
+
+    upg_diff = des_upg - curr_upg
+    dmg_diff = des_dmg - curr_dmg
+    ref_mult_diff = des_ref_mult - curr_ref_mult
+
+    corr_diff_text = ""
+    if not curr_corr and des_corr:
+        corr_diff_text = " (активируется)"
+    elif curr_corr and not des_corr:
+        corr_diff_text = " ❌ (невозможно)"
+
+    dmg_sign = "+" if dmg_diff >= 0 else ""
+    pct_sign = "+" if dmg_diff >= 0 else ""
+
+    return (
+        f"📊 <b>Сравнение {item_info['name']}</b>\n\n"
+        f"<b>ROLL:</b> <i>{roll}/11</i> | <b>BASE:</b> <i>{base_dmg:,.2f}</i>\n\n"
+        f"<b>🔸 Текущее состояние</b>\n"
+        f"<b>UPG:</b> <i>{curr_upg}</i>\n"
+        f"<b>Reforge:</b> <i>{curr_ref_name}</i> (x{curr_ref_mult:.2f})\n"
+        f"<b>Corrupted:</b> <i>{'Да' if curr_corr else 'Нет'}</i>\n"
+        f"<b>DMG:</b> <i>{int(curr_dmg):,}</i>\n"
+        f"<b>Gold spent:</b> <i>{curr_spent:,}</i> 💰\n\n"
+        f"<b>🔹 Желаемое состояние</b>\n"
+        f"<b>UPG:</b> <i>{des_upg} (+{upg_diff})</i>\n"
+        f"<b>Reforge:</b> <i>{des_ref_name}</i> (x{des_ref_mult:.2f}) {f'(+{ref_mult_diff:.2f})' if ref_mult_diff != 0 else ''}\n"
+        f"<b>Corrupted:</b> <i>{'Да' if des_corr else 'Нет'}{corr_diff_text}</i>\n"
+        f"<b>DMG:</b> <i>{int(des_dmg):,} ({dmg_sign}{int(dmg_diff):,})</i>\n\n"
+        f"<b>💰 Дополнительное золото:</b> <i>{add_gold:,}</i> 💰\n"
+        f"<b>📈 Прирост урона:</b> <i>{dmg_sign}{int(dmg_diff):,} ({pct_sign}{dmg_diff / curr_dmg * 100:.1f}%)</i>"
+    )
+
+def generate_tl_compare_process_page(item_key, roll, upg, corr, reforge_mult, reforge_name, state):
+    """Process для Actual/Wished в сравнении Timelost"""
+    item_info = ITEMS_MAPPING[item_key]
+    base_dmg = item_info['stats'][roll]
+
+    steps = []
+    steps.append(f"🧮 <b>Детальные вычисления: {item_info['name']} ({state})</b>\n\n")
+
+    # Шаг 1: База
+    steps.append(f"<b>1. Базовый урон (ролл {roll}):</b>")
+    steps.append(f"<i>  {base_dmg:,.2f}</i>\n")
+
+    # Шаг 2: Рост
+    growth_factor = 1 + GROWTH_RATE * upg
+    base_value = base_dmg * growth_factor
+    steps.append("<b>2. Применяем фактор роста:</b>")
+    steps.append(f"<i>  Фактор = 1 + {upg} × 0.047619 = {growth_factor:.10f}</i>")
+    steps.append(f"<i>  {base_dmg:,.2f} × {growth_factor:.10f} = {base_value:,.2f}</i>\n")
+
+    # Шаг 3: Corrupted
+    if corr:
+        corr_value = base_value * 1.5
+        steps.append("<b>3. Умножаем на Corrupted (×1.5):</b>")
+        steps.append(f"<i>  {base_value:,.2f} × 1.50 = {corr_value:,.2f}</i>\n")
+        final = corr_value
+    else:
+        final = base_value
+        steps.append("<b>3. Corrupted: Нет (×1.00)</b>\n")
+
+    # Шаг 4: Reforge
+    if reforge_mult != 1.0:
+        ref_value = final * reforge_mult
+        steps.append(f"<b>4. Умножаем на Reforge ({reforge_name} ×{reforge_mult:.2f}):</b>")
+        steps.append(f"<i>  {final:,.2f} × {reforge_mult:.2f} = {ref_value:,.2f}</i>\n")
+        final = ref_value
+    else:
+        steps.append("<b>4. Reforge: Нет (×1.00)</b>\n")
+
+    steps.append(f"<b>✓ Итоговый урон = {int(final):,}</b>")
+
+    return "\n".join(steps)
+
 async def analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed_thread(update):
         return
@@ -1804,7 +2255,7 @@ async def analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE)
             is_dd = False
             active_weapon = "ws"
             display_roll = 11
-            display_base = WOODEN_SWORD_OLD_BASE
+            display_base = WOODEN_SWORD_BASE
         elif weapon_type == "dd":
             is_ws = False
             is_dd = True
@@ -1875,8 +2326,8 @@ async def w_analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYP
         error_message += "\n".join(errors)
         error_message += "\n\n**Пример написания:**\n"
         error_message += f"{example} \n(Ролл: 6-11 для обычных мечей)"
-        await update.message.reply_text(error_message, parse_mode=ParseMode.MARKDOWN)
-        return
+        if await _send_error(update, context, error_message, example):
+            return
 
     # Парсинг roll
     try:
@@ -1929,16 +2380,13 @@ async def w_analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Для конкретного меча используем weapon_roll
         weapon_roll = 11 if active_weapon == "ws" else roll
-        base_dmg = ITEMS_MAPPING[active_key]['stats'][weapon_roll]
-        dmg = calculate_weapon_stat_at_level(base_dmg, target_level, is_corrupted, reforge_mult)
 
-        text = generate_asc_total_page(active_key, dmg, target_level, is_corrupted,
-                                       reforge_name, reforge_mult,
-                                       weapon_roll,
-                                       base_dmg)
+        # Используем новую функцию в стиле TL
+        text = generate_asc_forecast_total_page(active_key, weapon_roll, target_level, is_corrupted,
+                                                reforge_name, reforge_mult)
 
         keyboard = generate_asc_forecast_keyboard(
-            original_roll=roll,  # <-- передаем изначальный roll
+            original_roll=roll,
             upg=target_level,
             corr=is_corrupted,
             reforge_name=reforge_name,
@@ -2078,15 +2526,16 @@ async def l_analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYP
 
         # Для конкретного меча используем weapon_roll
         weapon_roll = 11 if active_weapon == "ws" else curr_roll
-        text = generate_compare_total_page(
-            ITEMS_MAPPING[active_key],
-            weapon_roll,  # <-- используем weapon_roll
+
+        # Используем новую функцию в стиле TL
+        text = generate_asc_compare_total_page(
+            active_key, weapon_roll,
             curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
             des_upg, des_corr, des_ref_mult, des_ref_name
         )
 
         keyboard = generate_asc_compare_keyboard(
-            roll=curr_roll,  # <-- передаем изначальный roll
+            roll=curr_roll,
             curr_upg=curr_upg,
             curr_corr=curr_corr,
             curr_ref=curr_ref_name,
@@ -2106,6 +2555,348 @@ async def l_analyze_asc_weapon(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"Непредвиденная ошибка при расчёте: {e}")
 
+
+async def analyze_timelost(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """!tl - анализ Timelost Conqueror's Blade с автоопределением типа"""
+    if not is_allowed_thread(update):
+        return
+
+    command_name = "!" + context.command
+    args = context.args
+    errors = []
+
+    # Проверка количества аргументов (копируем стиль !asc)
+    if len(args) not in (3, 4):
+        errors.append(f"❌ Неверное количество аргументов ({len(args)}). Ожидается 3 или 4.")
+
+    reforge_name = "None"
+    reforge_mult = 1.0
+
+    # Парсинг аргументов
+    if len(args) >= 3:
+        try:
+            damage = float(args[0])
+        except ValueError:
+            errors.append(f"❌ Урон ({args[0]}) должен быть числом.")
+
+        try:
+            upg_level = int(args[1])
+            if upg_level > 45 or upg_level < 0:
+                errors.append(f"❌ Уровень оружия ({upg_level}) не соответствует 0-45.")
+        except ValueError:
+            errors.append(f"❌ Уровень улучшения ({args[1]}) должен быть числом.")
+
+        is_corrupted_str = args[2].lower()
+        if is_corrupted_str not in ('y', 'n'):
+            errors.append(f"❌ Статус порчи ({is_corrupted_str}) должен быть 'y' или 'n'.")
+
+        if len(args) == 4:
+            reforge_input = args[3]
+            found = False
+            for k_ref in REFORGE_MODIFIERS:
+                if k_ref.lower() == reforge_input.lower():
+                    reforge_name = k_ref
+                    reforge_mult = REFORGE_MODIFIERS[k_ref]
+                    found = True
+                    break
+            if not found:
+                errors.append(f"❌ Неизвестный Reforge ({reforge_input}), напишите !reforge для списка.")
+
+    if errors:
+        example = f"`{command_name}` {{dmg}} {{upg}} {{y/n}} {{reforge}}"
+        error_message = f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
+        error_message += "\n".join(errors)
+        error_message += "\n\n**Пример написания:**\n"
+        error_message += f"{example}"
+        if await _send_error(update, context, error_message, example):
+            return
+
+    # Все параметры успешно распарсены
+    damage = float(args[0])
+    upg_level = int(args[1])
+    is_corrupted = args[2].lower() == 'y'
+
+    try:
+        # Определяем базовый урон для проверки типа
+        inferred_base = infer_base_for_weapon(damage, upg_level, is_corrupted, reforge_mult)
+
+        # Определяем тип (обычный или L.E.)
+        item_key, roll, base_dmg, is_le = find_timelost_type(inferred_base)
+
+        # Генерируем ответ
+        text = generate_tl_total_page(item_key, damage, upg_level, is_corrupted,
+                                      reforge_name, reforge_mult, roll, base_dmg)
+
+        keyboard = generate_tl_analysis_keyboard(
+            damage, upg_level, is_corrupted, reforge_name,
+            update.message.message_id, roll, is_le, "total"
+        )
+
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.message_id
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Непредвиденная ошибка при расчете: {e}")
+
+
+async def w_timelost_forecast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """!wtl - прогноз Timelost"""
+    if not is_allowed_thread(update):
+        return
+
+    command_name = "!" + context.command
+    args_raw = context.args
+    errors = []
+
+    # Поиск разделителя (копируем стиль !wasc)
+    sep_idx = -1
+    for idx, arg in enumerate(args_raw):
+        if arg == '>':
+            sep_idx = idx
+            break
+
+    if sep_idx == -1:
+        errors.append("❌ Обязательный разделитель '>' не найден.")
+
+    if not errors:
+        left_args = args_raw[:sep_idx]
+        right_args = args_raw[sep_idx + 1:]
+
+        if len(left_args) != 1:
+            errors.append(f"❌ Левая часть: неверное количество аргументов ({len(left_args)}). Ожидается 1 (roll).")
+        if len(right_args) not in (2, 3):
+            errors.append(f"❌ Правая часть: неверное количество аргументов ({len(right_args)}). Ожидается 2 или 3.")
+
+    if errors:
+        example = f"`{command_name}` {{ролл}} > {{upg}} {{y/n}} {{reforge}}"
+        error_message = f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
+        error_message += "\n".join(errors)
+        error_message += "\n\n**Пример написания:**\n"
+        error_message += f"{example} \n(Ролл: 1-11)"
+        if await _send_error(update, context, error_message, example):
+            return
+    # Парсинг
+    try:
+        roll = int(left_args[0])
+        if not 1 <= roll <= 11:
+            errors.append(f"❌ Ролл ({roll}) должен быть в диапазоне 1-11.")
+    except ValueError:
+        errors.append(f"❌ Ролл ({left_args[0]}) должен быть числом.")
+
+    try:
+        target_level = int(right_args[0])
+        if target_level > 45 or target_level < 0:
+            errors.append(f"❌ Уровень оружия ({target_level}) не соответствует 0-45.")
+    except ValueError:
+        errors.append(f"❌ Уровень улучшения ({right_args[0]}) должен быть числом.")
+
+    is_corrupted_str = right_args[1].lower()
+    if is_corrupted_str not in ('y', 'n'):
+        errors.append(f"❌ Статус порчи ({is_corrupted_str}) должен быть 'y' или 'n'.")
+
+    reforge_name = "None"
+    reforge_mult = 1.0
+    if len(right_args) == 3:
+        reforge_input = right_args[2]
+        found = False
+        for k_ref in REFORGE_MODIFIERS:
+            if k_ref.lower() == reforge_input.lower():
+                reforge_name = k_ref
+                reforge_mult = REFORGE_MODIFIERS[k_ref]
+                found = True
+                break
+        if not found:
+            errors.append(f"❌ Неизвестный Reforge ({reforge_input}), напишите !reforge для списка.")
+
+    if errors:
+        example = f"`{command_name}` {{ролл}} > {{upg}} {{y/n}} {{reforge}}"
+        error_message = f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
+        error_message += "\n".join(errors)
+        error_message += "\n\n**Пример написания:**\n"
+        error_message += f"{example} \n(Ролл: 1-11)"
+        if await _send_error(update, context, error_message, example):
+            return
+
+    roll = int(left_args[0])
+    target_level = int(right_args[0])
+    is_corrupted = is_corrupted_str == 'y'
+
+    try:
+        # Показываем TL по умолчанию, но кнопки есть для обоих
+        item_key = "tl"  # По умолчанию показываем обычный
+        base_dmg = TIMELOST_CONQUERORS_BLADE_STATS[roll]
+
+        text = generate_tl_forecast_total_page(item_key, roll, target_level, is_corrupted,
+                                               reforge_name, reforge_mult)
+
+        keyboard = generate_wtl_forecast_keyboard(
+            original_roll=roll,
+            upg=target_level,
+            corr=is_corrupted,
+            reforge_name=reforge_name,
+            user_msg_id=update.message.message_id,
+            current_page="tl_total"
+        )
+
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.message_id
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Непредвиденная ошибка при расчете: {e}")
+
+
+async def l_timelost_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """!ltl - сравнение Timelost"""
+    if not is_allowed_thread(update):
+        return
+
+    command_name = "!" + context.command
+    args_raw = context.args
+    errors = []
+
+    # Ищем разделители (копируем стиль !lasc)
+    minus_idx = -1
+    gt_idx = -1
+    for idx, arg in enumerate(args_raw):
+        if arg == '-' and minus_idx == -1:
+            minus_idx = idx
+        elif arg == '>' and gt_idx == -1:
+            gt_idx = idx
+
+    if minus_idx == -1:
+        errors.append("❌ Обязательный разделитель '-' не найден.")
+    if gt_idx == -1:
+        errors.append("❌ Обязательный разделитель '>' не найден.")
+    if minus_idx != -1 and gt_idx != -1 and gt_idx <= minus_idx:
+        errors.append("❌ Неверный порядок разделителей. Ожидается: {roll} - ... > ...")
+
+    if not errors:
+        roll_part = args_raw[:minus_idx]
+        mid_part = args_raw[minus_idx + 1:gt_idx]
+        right_part = args_raw[gt_idx + 1:]
+
+        if len(roll_part) != 1:
+            errors.append(f"❌ Левая часть: ожидается 1 аргумент (roll), получено {len(roll_part)}.")
+        if len(mid_part) not in (2, 3):
+            errors.append(
+                f"❌ Средняя часть: ожидается 2 или 3 аргумента (текущее состояние), получено {len(mid_part)}.")
+        if len(right_part) not in (2, 3):
+            errors.append(
+                f"❌ Правая часть: ожидается 2 или 3 аргумента (желаемое состояние), получено {len(right_part)}.")
+
+    # Парсинг roll
+    if not errors:
+        try:
+            curr_roll = int(roll_part[0])
+            if not 1 <= curr_roll <= 11:
+                errors.append(f"❌ Ролл ({roll_part[0]}) не в диапазоне 1-11.")
+        except ValueError:
+            errors.append(f"❌ Ролл ({roll_part[0]}) должен быть числом.")
+
+    # Парсинг текущего состояния
+    if not errors:
+        try:
+            curr_upg = int(mid_part[0])
+            if not 0 <= curr_upg <= 45:
+                errors.append(f"❌ Текущий уровень ({mid_part[0]}) не в 0-45.")
+        except ValueError:
+            errors.append(f"❌ Текущий уровень ({mid_part[0]}) должен быть числом.")
+
+        curr_corr_str = mid_part[1].lower()
+        if curr_corr_str not in ('y', 'n'):
+            errors.append(f"❌ Текущий corrupted ({mid_part[1]}) должен быть 'y' или 'n'.")
+
+        curr_ref_name = "None"
+        curr_ref_mult = 1.0
+        if len(mid_part) == 3:
+            ref = mid_part[2]
+            found = False
+            for k in REFORGE_MODIFIERS:
+                if k.lower() == ref.lower():
+                    curr_ref_name = k
+                    curr_ref_mult = REFORGE_MODIFIERS[k]
+                    found = True
+                    break
+            if not found:
+                errors.append(f"❌ Неизвестный текущий reforge ({ref}).")
+
+    # Парсинг желаемого состояния
+    if not errors:
+        try:
+            des_upg = int(right_part[0])
+            if not 0 <= des_upg <= 45:
+                errors.append(f"❌ Желаемый уровень ({right_part[0]}) не в 0-45.")
+        except ValueError:
+            errors.append(f"❌ Желаемый уровень ({right_part[0]}) должен быть числом.")
+
+        des_corr_str = right_part[1].lower()
+        if des_corr_str not in ('y', 'n'):
+            errors.append(f"❌ Желаемый corrupted ({right_part[1]}) должен быть 'y' или 'n'.")
+
+        des_ref_name = "None"
+        des_ref_mult = 1.0
+        if len(right_part) == 3:
+            ref = right_part[2]
+            found = False
+            for k in REFORGE_MODIFIERS:
+                if k.lower() == ref.lower():
+                    des_ref_name = k
+                    des_ref_mult = REFORGE_MODIFIERS[k]
+                    found = True
+                    break
+            if not found:
+                errors.append(f"❌ Неизвестный желаемый reforge ({ref}).")
+
+    # Проверка коррупта
+    if not errors and curr_corr_str == 'y' and des_corr_str == 'n':
+        errors.append("❌ Нельзя декорраптить (y → n запрещено).")
+
+    if errors:
+        example = f"`{command_name}` {{ролл}} - {{upg}} {{y/n}} [reforge] > {{upg}} {{y/n}} [reforge]"
+        error_message = f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
+        error_message += "\n".join(errors)
+        error_message += "\n\n**Пример написания:**\n" + example + "\n(Ролл: 1-11)"
+        if await _send_error(update, context, error_message, example):
+            return
+
+    curr_corr = curr_corr_str == 'y'
+    des_corr = des_corr_str == 'y'
+    curr_roll = int(roll_part[0])
+
+    try:
+        # Показываем TL по умолчанию
+        text = generate_tl_compare_total_page(
+            "tl", curr_roll,
+            curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
+            des_upg, des_corr, des_ref_mult, des_ref_name
+        )
+
+        keyboard = generate_ltl_compare_keyboard(
+            roll=curr_roll,
+            curr_upg=curr_upg,
+            curr_corr=curr_corr,
+            curr_ref=curr_ref_name,
+            des_upg=des_upg,
+            des_corr=des_corr,
+            des_ref=des_ref_name,
+            user_msg_id=update.message.message_id,
+            current_page="tl_total"
+        )
+
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.message_id
+        )
+    except Exception as e:
+        await update.message.reply_text(f"Непредвиденная ошибка при расчёте: {e}")
 
 # --- ФУНКЦИИ АНАЛИЗА ТЕКУЩЕГО ПРЕДМЕТА (СТАРЫЕ КОМАНДЫ: !conq, !doom, !fzhelm, и т.д.) ---
 
@@ -2789,6 +3580,203 @@ async def armor_results_callback(update: Update, context: ContextTypes.DEFAULT_T
     except Exception as e:
         print(f"Ошибка при редактировании: {e}")
 
+async def tl_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик callback'ов для !tl"""
+    query = update.callback_query
+
+    if not check_message_ownership(query):
+        await query.answer("Это не ваше сообщение!", show_alert=True)
+        return
+
+    await query.answer()
+
+    if not is_allowed_thread(update):
+        return
+
+    data_parts = query.data.split(":")
+    if len(data_parts) < 2:
+        return
+
+    action = data_parts[1]
+
+    # Закрытие
+    if action == "close":
+        await query.message.delete()
+        if len(data_parts) > 2:
+            try:
+                user_msg_id = int(data_parts[2])
+                await context.bot.delete_message(
+                    chat_id=query.message.chat_id,
+                    message_id=user_msg_id
+                )
+            except:
+                pass
+        return
+
+    # Обработка страниц tl
+    if len(data_parts) >= 9:
+        # Format: tl:page:dmg:upg:corr:reforge:roll:is_le:user_msg_id
+        page = data_parts[1]
+        dmg = float(data_parts[2])
+        upg = int(data_parts[3])
+        corr = data_parts[4] == 'y'
+        reforge_name = data_parts[5]
+        roll = int(data_parts[6])
+        is_le = bool(int(data_parts[7]))
+        user_msg_id = int(data_parts[8])
+
+        reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
+        item_key = "tl_le" if is_le else "tl"
+        base_dmg = ITEMS_MAPPING[item_key]['stats'][roll]
+
+        if page == "total":
+            text = generate_tl_total_page(item_key, dmg, upg, corr, reforge_name, reforge_mult, roll, base_dmg)
+        elif page == "process":
+            text = generate_tl_process_page(item_key, dmg, upg, corr, reforge_name, reforge_mult, roll, base_dmg, is_le)
+        elif page == "tablet":
+            text = generate_tl_tablet_page(item_key, roll, corr, reforge_mult, reforge_name)
+        else:
+            await query.answer("Неизвестная страница", show_alert=True)
+            return
+
+        keyboard = generate_tl_analysis_keyboard(dmg, upg, corr, reforge_name, user_msg_id, roll, is_le, page)
+        parse_mode = ParseMode.MARKDOWN_V2 if page == "tablet" else ParseMode.HTML
+
+        try:
+            await query.message.edit_text(text, parse_mode=parse_mode, reply_markup=keyboard)
+        except BadRequest as e:
+            if "Message is not modified" in str(e):
+                await query.answer()
+            else:
+                raise
+
+async def wtl_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик callback'ов для !wtl"""
+    query = update.callback_query
+
+    if not check_message_ownership(query):
+        await query.answer("Это не ваше сообщение!", show_alert=True)
+        return
+
+    await query.answer()
+
+    if not is_allowed_thread(update):
+        return
+
+    # Format: wtl:tl|le:page:dmg:roll:upg:corr:reforge:original_roll:user_msg_id
+    data_parts = query.data.split(":")
+    if len(data_parts) != 10:
+        await query.answer("Ошибка формата", show_alert=True)
+        return
+
+    tl_type = data_parts[1]  # 'tl' или 'le'
+    page = data_parts[2]
+    # dmg = float(data_parts[3])  # dummy
+    roll = int(data_parts[4])
+    upg = int(data_parts[5])
+    corr = data_parts[6] == 'y'
+    reforge_name = data_parts[7]
+    # original_roll = int(data_parts[8])
+    user_msg_id = int(data_parts[9])
+
+    reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
+    item_key = "tl_le" if tl_type == "le" else "tl"
+    base_dmg = ITEMS_MAPPING[item_key]['stats'][roll]
+
+    # Определяем текущую страницу для подсветки
+    current_page = f"{tl_type}_{page.replace('tl_', '').replace('le_', '')}"
+
+    if page in ("tl_total", "le_total"):
+        text = generate_tl_forecast_total_page(item_key, roll, upg, corr, reforge_name, reforge_mult)
+    elif page in ("tl_process", "le_process"):
+        text = generate_tl_forecast_process_page(item_key, roll, upg, corr, reforge_name, reforge_mult)
+    else:
+        await query.answer("Неизвестная страница", show_alert=True)
+        return
+
+    keyboard = generate_wtl_forecast_keyboard(roll, upg, corr, reforge_name, user_msg_id, current_page)
+
+    try:
+        await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            await query.answer()
+        else:
+            raise
+
+async def ltl_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик callback'ов для !ltl"""
+    query = update.callback_query
+
+    if not check_message_ownership(query):
+        await query.answer("Это не ваше сообщение!", show_alert=True)
+        return
+
+    await query.answer()
+
+    if not is_allowed_thread(update):
+        return
+
+    # Format: ltl:tl|le:page:dmg:roll:curr_upg:curr_corr:curr_ref:des_upg:des_corr:des_ref:original_roll:user_msg_id
+    data_parts = query.data.split(":")
+    if len(data_parts) != 13:
+        await query.answer("Ошибка формата", show_alert=True)
+        return
+
+    tl_type = data_parts[1]  # 'tl' или 'le'
+    page = data_parts[2]
+    # dmg = float(data_parts[3])  # dummy
+    roll = int(data_parts[4])
+    curr_upg = int(data_parts[5])
+    curr_corr = data_parts[6] == 'y'
+    curr_ref = data_parts[7]
+    des_upg = int(data_parts[8])
+    des_corr = data_parts[9] == 'y'
+    des_ref = data_parts[10]
+    # original_roll = int(data_parts[11])
+    user_msg_id = int(data_parts[12])
+
+    curr_ref_mult = REFORGE_MODIFIERS.get(curr_ref, 1.0)
+    des_ref_mult = REFORGE_MODIFIERS.get(des_ref, 1.0)
+    item_key = "tl_le" if tl_type == "le" else "tl"
+
+    # Определяем текущую страницу
+    page_map = {
+        "tl_total": "tl_total", "tl_actual": "tl_actual", "tl_wished": "tl_wished",
+        "le_total": "le_total", "le_actual": "le_actual", "le_wished": "le_wished"
+    }
+    current_page = page_map.get(page, "tl_total")
+
+    if page in ("tl_total", "le_total"):
+        text = generate_tl_compare_total_page(
+            item_key, roll,
+            curr_upg, curr_corr, curr_ref_mult, curr_ref,
+            des_upg, des_corr, des_ref_mult, des_ref
+        )
+    elif page in ("tl_actual", "le_actual"):
+        text = generate_tl_compare_process_page(
+            item_key, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref, "Actual"
+        )
+    elif page in ("tl_wished", "le_wished"):
+        text = generate_tl_compare_process_page(
+            item_key, roll, des_upg, des_corr, des_ref_mult, des_ref, "Wished"
+        )
+    else:
+        await query.answer("Неизвестная страница", show_alert=True)
+        return
+
+    keyboard = generate_ltl_compare_keyboard(
+        roll, curr_upg, curr_corr, curr_ref,
+        des_upg, des_corr, des_ref, user_msg_id, current_page
+    )
+
+    try:
+        await query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    except BadRequest as e:
+        if "Message is not modified" in str(e):
+            await query.answer()
+        else:
+            raise
 
 async def generate_armor_results(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     user_data = user_armor_data[user_id]
@@ -2978,20 +3966,32 @@ CALLBACK_ASCR_WS = "ws"
 
 
 def format_asc_table_text(title, stats_dict, mode="normal", show_corrupted=False):
-    """Форматирование таблицы для ASC оружия
+    """Форматирование таблицы для ASC оружия - упрощено для Wooden Sword"""
 
-    Args:
-        show_corrupted: Если True, показывает две колонки (Base DMG и Corrupted DMG)
-    """
+    if title == "WOODEN_SWORD_V2":
+        # Для Wooden Sword - только одна строка с роллом 11
+        header = f"{'ROLL':<5} | {'Base DMG':<10} | {'Corrupted DMG':<13}"
+        sep = "-" * len(header)
 
+        base_value = WOODEN_SWORD_BASE  # 11550 напрямую
+        corrupted_value = base_value * 1.5
+
+        rows = [
+            header,
+            sep,
+            f"{11:<5} | {base_value:<10,} | {corrupted_value:<13,}"
+        ]
+
+        table_content = "\n".join(rows)
+        return f"```{title}\n\n{table_content}\n```"
+
+    # Для остальных - без изменений
     if show_corrupted:
-        # Две колонки: Base DMG и Corrupted DMG
         header = f"{'ROLL':<5} | {'Base DMG':<10} | {'Corrupted DMG':<13}"
         sep = "-" * len(header)
         rows = [header, sep]
 
-        # Для WS начинаем с 11, для остальных с 6
-        start_roll = 11 if title == "WOODEN_SWORD_V2" else 6
+        start_roll = 6
 
         for roll in range(start_roll, 12):
             if roll in stats_dict:
@@ -2999,12 +3999,11 @@ def format_asc_table_text(title, stats_dict, mode="normal", show_corrupted=False
                 corrupted_value = base_value * 1.5
                 rows.append(f"{roll:<5} | {base_value:<10,} | {corrupted_value:<13,}")
     else:
-        # Одна колонка (старый формат)
         header = f"{'Roll':<5} | {'Value':<12}"
         sep = "-" * len(header)
         rows = [header, sep]
 
-        start_roll = 11 if title == "WOODEN_SWORD_V2" else 6
+        start_roll = 6
 
         for roll in range(start_roll, 12):
             if roll in stats_dict:
@@ -3108,12 +4107,13 @@ def get_main_page_text():
 `!doomr` - Список роллов Дума (Doombringer)
 `!conqr` - Список роллов Конки (Conqueror's Blade)
 `!ascr` - Список роллов всех Ascended оружий
+`!tlr` - Список роллов для TL конков (TimeLost Conqueror's Blade)
 `!fzr` - Список роллов Furious Zeus Set (броня)
 `!zr` - Список роллов Zeus Set (броня)
 
 *Команды для владельца групп:*
-`!roll_id` {ID Topic} {Название}
-`!roll_id_clear` {ID Topic}
+`!roll_id` {ID топика} {Название}
+`!roll_id_clear` {ID топика} - если написать без айди, то бот очистит все топики
 `!roll_allow` - для обычных групп без топиков
 `!roll_deny` - удалить доступ к чату обычной группы
 `!roll_status` - показать настройки бота в группе
@@ -3125,7 +4125,7 @@ def get_instruction_page_text():
 
 *1. Объяснения аргументов для команд:*
 
-`{roll}` - _индекс предмета, означающий множитель базового урона. В игре для практически всех оружий роллов от 1 до 11, за исключением Ascended оружий, у которых может быть только от 6 до 11. Чтобы узнать ролл вашего предмета, основные для этого команды в разделе_ *"!..."*
+`{roll}` - _индекс предмета, означающий множитель базового урона. В игре для практически всех оружий роллов от 1 до 11, за исключением Ascended оружий с КРАФТА, у которых может быть только от 6 до 11. Чтобы узнать ролл вашего предмета, основные для этого команды в разделе_ *"!..."*
 `{dmg/hp}` - _значение урона/здоровья на предмете, который у вас отображается в игре_
 `{upg}` - _значение уровня улучшений на предмете, до которого вы дошли в игре. В игре для редкости Legendary доступные уровни улучшения 0-34, а для редкости Mythical и Ascended - 0-45_
 `{y/n}` - _значение состояние вашего предмета._
@@ -3134,7 +4134,7 @@ def get_instruction_page_text():
 `"-"` и `">"` - _не менее важные символы для ввода. О них не нужно забывать. Визуально выглядит круто и вполне уместно_
 
 *Вкратце о аргументах*
-`{roll}` - все редкости: 0-11; у Ascended - 6-11
+`{roll}` - все редкости: 0-11; у Ascended с крафта - 6-11
 `{upg}` - легендарная редкость: 0-34; у Mythical и Ascended - 0-45
 `{y/n}` - y - corrupted, n - НЕ corrupted
 `{reforge}` - список зачарований: `!reforge`
@@ -3159,6 +4159,7 @@ def get_current_page_text():
 `!conq` {dmg} {upg} {y/n} {reforge}
 `!doom` {dmg} {upg} {y/n} {reforge}
 `!asc` {dmg} {upg} {y/n} {reforge}
+`!tl` {dmg} {upg} {y/n} {reforge}
 
 *Броня:* 
 `!fz` / `!z`
@@ -3178,6 +4179,7 @@ def get_w_page_text():
 `!wconq` {ролл} > {upg} {y/n} {reforge}
 `!wdoom` {ролл} > {upg} {y/n} {reforge}
 `!wasc` {ролл} > {upg} {y/n} {reforge}
+`!wtl` {ролл} > {upg} {y/n} {reforge}
 
 *Броня:* 
 `!wfz` / `!wz`
@@ -3194,9 +4196,10 @@ def get_l_page_text():
 *Прогноз и сравнение актуальных и желаемых характеристик предмета (!l...)*
 
 *Обычное оружие:*
-`!lconq` {ролл} - {upg} {y/n} {reforge} > {upg} {y/n} {reforge}
-`!ldoom` {ролл} - {upg} {y/n} {reforge} > {upg} {y/n} {reforge}
-`!lasc` {ролл} - {upg} {y/n} {reforge} > {upg} {y/n} {reforge}
+`!lconq` {ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}
+`!ldoom` {ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}
+`!lasc` {ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}
+`!ltl` {ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}
 
 *Броня:* 
 `!lfz` / `!lz`
@@ -3279,6 +4282,91 @@ def get_armor_table_keyboard(prefix, current_page="helmet", user_message_id=None
         [InlineKeyboardButton("Свернуть", callback_data=close_callback)]
     ]
     return InlineKeyboardMarkup(keyboard)
+
+
+# --- КОНСТАНТЫ ДЛЯ !tlr ---
+CALLBACK_PREFIX_TLR = "tlr"
+CALLBACK_TLR_NORMAL = "normal"
+CALLBACK_TLR_LE = "le"
+
+def format_tl_table_text(current_page="normal"):
+    """Форматирование таблицы роллов Timelost"""
+
+    if current_page == "le":
+        # Limited Edition (Ascended)
+        stats = TIMELOST_CONQUERORS_BLADE_LE_STATS
+        title = "TIMELOST_CONQUERORS_BLADE_LE"
+        subtitle = "Limited Edition (Ascended)"
+    else:
+        # Обычный (Mythical)
+        stats = TIMELOST_CONQUERORS_BLADE_STATS
+        title = "TIMELOST_CONQUERORS_BLADE"
+        subtitle = "Mythical"
+
+    # Заголовок с 3 колонками: Roll | Base DMG | Corrupted
+    header = f"{'ROLL':<5} | {'Base DMG':<10} | {'Corrupted DMG':<13}"
+    sep = "-" * len(header)
+    rows = [header, sep]
+
+    for roll in range(1, 12):
+        base_value = stats[roll]
+        corrupted_value = base_value * 1.5
+
+        # Форматируем числа с разделителями тысяч
+        base_str = f"{base_value:,.2f}"
+        corr_str = f"{corrupted_value:,.2f}"
+
+        rows.append(f"{roll:<5} | {base_str:<10} | {corr_str:<13}")
+
+    table_content = "\n".join(rows)
+
+    return f"```{title}\n{subtitle}\n\n{table_content}\n```"
+
+def get_tl_table_keyboard(current_page="normal", user_message_id=None):
+    """Клавиатура для !tlr"""
+
+    def make_callback(action):
+        base = f"{CALLBACK_PREFIX_TLR}:{action}"
+        return f"{base}:{user_message_id}" if user_message_id else base
+
+    normal_text = "✓ Timelost" if current_page == "normal" else "Timelost"
+    le_text = "✓ Timelost L.E." if current_page == "le" else " Timelost L.E."
+
+    # Формируем callback_data
+    close_callback = f"{CALLBACK_PREFIX_TLR}:close"
+    if user_message_id:
+        close_callback += f":{user_message_id}"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(normal_text, callback_data=make_callback(CALLBACK_TLR_NORMAL)),
+            InlineKeyboardButton(le_text, callback_data=make_callback(CALLBACK_TLR_LE)),
+        ],
+        [InlineKeyboardButton("Свернуть", callback_data=close_callback)]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+async def tl_table_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды !tlr"""
+    if not is_allowed_thread(update):
+        return
+
+    text = format_tl_table_text("normal")
+    keyboard = get_tl_table_keyboard("normal", update.message.message_id)
+
+    try:
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.message_id,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"Ошибка при отправке таблицы: {e}",
+            reply_to_message_id=update.message.message_id
+        )
 
 # Обработчик нажатий на кнопки меню помощи
 async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3394,7 +4482,7 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             stats = ITEMS_MAPPING["asc_dd"]["stats"]
             text = format_asc_table_text("DUAL_DAGGERS_V2", stats, "normal", show_corrupted=True)
         elif action == CALLBACK_ASCR_WS:
-            stats = {11: WOODEN_SWORD_OLD_BASE}
+            stats = {11: WOODEN_SWORD_BASE}
             text = format_asc_table_text("WOODEN_SWORD_V2", stats, "normal", show_corrupted=True)
         else:
             await query.answer("Неизвестное действие", show_alert=True)
@@ -3408,6 +4496,37 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
             disable_web_page_preview=True
         )
         return
+
+    # === ОБРАБОТЧИК ДЛЯ !tlr ===
+    if prefix == CALLBACK_PREFIX_TLR:
+         # Закрытие
+        if action == "close":
+            await query.message.delete()
+            if user_message_id:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=query.message.chat_id,
+                        message_id=user_message_id
+                    )
+                except:
+                    pass
+            return
+
+        # Переключение страниц
+        if action in (CALLBACK_TLR_NORMAL, CALLBACK_TLR_LE):
+            text = format_tl_table_text(action)
+            keyboard = get_tl_table_keyboard(action, user_message_id)
+
+            try:
+                await query.message.edit_text(
+                    text=text,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True
+                )
+            except Exception as e:
+                print(f"Ошибка при редактировании tlr: {e}")
+            return
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed_thread(update):
@@ -3766,6 +4885,14 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
     elif command == "lasc":
         await l_analyze_asc_weapon(update, context)
 
+    # TL оружие
+    elif command == "tl":
+        await analyze_timelost(update, context)
+    elif command == "wtl":
+        await w_timelost_forecast(update, context)
+    elif command == "ltl":
+        await l_timelost_compare(update, context)
+
     # Броня
     elif command == "fz":
         await handle_armor_command(update, context, "fz")
@@ -3785,6 +4912,9 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
         await cmd_help(update, context)
     elif command == "reforge":
         await reforge_command(update, context)
+    elif command == "tlr":
+        await tl_table_command(update, context)
+        return
     elif command == "conqr":
         await update.message.reply_text(
             text=format_sword_table_text("CONQUEROR_ROLLS", CONQUERORS_BLADE_STATS, "normal"),
@@ -3830,7 +4960,6 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.effective_message.reply_text(chosen_phrase)
 
-
 # --- ЗАПУСК ---
 def main():
     # Загружаем разрешённые топики при старте
@@ -3847,12 +4976,28 @@ def main():
         ),
         group=0
     )
-    # 2. Callback для всех кнопок оружия (ASC + старые)
+
+    # 2. СПЕЦИФИЧНЫЕ Callback'и для Timelost (ДО общего обработчика!)
+    app.add_handler(
+        CallbackQueryHandler(tl_callback_handler, pattern="^tl:"),
+        group=0
+    )
+    app.add_handler(
+        CallbackQueryHandler(wtl_callback_handler, pattern="^wtl:"),
+        group=0
+    )
+    app.add_handler(
+        CallbackQueryHandler(ltl_callback_handler, pattern="^ltl:"),
+        group=0
+    )
+
+    # 3. Callback для всех кнопок оружия (ASC + старые) — БЕЗ tl/wtl/ltl!
     app.add_handler(
         CallbackQueryHandler(weapon_analysis_callback, pattern="^(asc|wasc|lasc|a|w|l|close):"),
         group=0
     )
-    # 3. Callback для этапов ввода брони (Пропустить/Отмена)
+
+    # 4. Callback для этапов ввода брони (Пропустить/Отмена)
     app.add_handler(
         CallbackQueryHandler(
             armor_stage_callback,
@@ -3860,15 +5005,17 @@ def main():
         ),
         group=0
     )
-    # 4. Callback для результатов брони (Total/Process/Tablet)
+
+    # 5. Callback для результатов брони (Total/Process/Tablet)
     app.add_handler(
         CallbackQueryHandler(
             armor_results_callback,
-            pattern="^armor:"  # ← ВОТ ЭТА СТРОКА ИЗМЕНЕНА
+            pattern="^armor:"
         ),
         group=0
     )
-    # 5. UI callback'ы (help, таблицы)
+
+    # 6. UI callback'и (help, таблицы, ascr, tlr)
     app.add_handler(
         CallbackQueryHandler(unified_callback_handler),
         group=0
@@ -3880,11 +5027,14 @@ def main():
         ),
         group=0
     )
+    # tlr уже обрабатывается в unified_callback_handler, не нужен отдельный
+
     # === ГРУППА 1: ОСНОВНЫЕ ТЕКСТОВЫЕ КОМАНДЫ ===
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, bang_router),
         group=1
     )
+
     # === ГРУППА 2: ВВОД ДАННЫХ ДЛЯ БРОНИ ===
     app.add_handler(
         MessageHandler(
@@ -3893,10 +5043,10 @@ def main():
         ),
         group=2
     )
+
     # === ЗАПУСК БОТА ===
     print("Бот запущен... С новой системой брони!")
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
