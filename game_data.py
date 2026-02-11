@@ -23,6 +23,19 @@ DUAL_DAGGERS_V2_STATS = {
     11: 5370.73
 }
 
+# --- TIMELOST WEAPONS ---
+TIMELOST_CONQUERORS_BLADE_STATS = {
+    1: 6825, 2: 6893.25, 3: 6961.5, 4: 7029.75, 5: 7098.05,
+    6: 7166.25, 7: 7234.5, 8: 7302.75, 9: 7371, 10: 7439.25, 11: 7507.5
+}
+
+TIMELOST_CONQUERORS_BLADE_LE_STATS = {
+    1: 8925.2, 2: 9014.425, 3: 9103.35, 4: 9192.875, 5: 9282.1,
+    6: 9371.325, 7: 9460.55, 8: 9549.775, 9: 9639, 10: 9728.225, 11: 9817.45
+}
+
+TIMELOST_THRESHOLD_PERCENT = 4.7619  # Для определения L.E. версии
+
 # --- B. БРОНЯ (ХП) ---
 FZH_STATS = { # Mythic Zeus Set (Furious)
     "Helmet": {
@@ -75,14 +88,11 @@ reforges = [
 
 WOODEN_SWORD_THRESHOLD_PERCENT = 4.7619
 ASC_BASE_UPGRADE_COST = 2917
-# --- КОНСТАНТЫ ДЛЯ WOODEN SWORD V2 ---
-WOODEN_SWORD_OLD_BASE = 10395
-WOODEN_SWORD_BUFF_MULTIPLIER = 1.111111111111858
-WOODEN_SWORD_NEW_BASE = WOODEN_SWORD_OLD_BASE * WOODEN_SWORD_BUFF_MULTIPLIER  # БЕЗ ОКРУГЛЕНИЯ
+WOODEN_SWORD_BASE = 11550
 
 # Заменить ASC_WEAPON_TYPES на:
 ASC_WEAPON_TYPES = {
-    'ws': {"name": "Wooden Sword V2", "base_dmg": WOODEN_SWORD_OLD_BASE, "fixed_roll": True, "has_rolls": False},  # Оставьте старую базу
+    'ws': {"name": "Wooden Sword V2", "base_dmg": WOODEN_SWORD_BASE, "fixed_roll": True, "has_rolls": False},  # Оставьте старую базу
     'mb': {"name": "Menta Blade V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
     'lk': {"name": "Lightning Katana V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
     'me': {"name": "Magma's Edge V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
@@ -108,7 +118,7 @@ ITEMS_MAPPING = {
     },
     "asc_ws": {
     "name": "Wooden Sword V2",
-    "stats": {11: WOODEN_SWORD_OLD_BASE},
+    "stats": {11: WOODEN_SWORD_BASE},
     "type": "asc_weapon",
     "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
     "max_level": 45,
@@ -167,6 +177,21 @@ ITEMS_MAPPING = {
         "type": "armor_set",
         "upgrade_cost_lvl1": 2112,
         "max_level": 34
+    },
+    "tl": {
+        "name": "Timelost Conqueror's Blade",
+        "stats": TIMELOST_CONQUERORS_BLADE_STATS,
+        "type": "weapon",
+        "upgrade_cost_lvl1": 2535,  # Mythical золото
+        "max_level": 45
+    },
+    "tl_le": {  # Limited Edition - Ascended
+        "name": "Timelost Conqueror's Blade (Limited Edition)",
+        "stats": TIMELOST_CONQUERORS_BLADE_LE_STATS,
+        "type": "asc_weapon",  # Используем asc_weapon для совместимости
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,  # 2917
+        "max_level": 45,
+        "weapon_key": "tl_le"  # Уникальный ключ
     },
 }
 # Маппинг частей брони
