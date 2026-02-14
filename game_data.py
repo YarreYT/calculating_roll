@@ -58,6 +58,36 @@ LZS_STATS = { # Legendary Zeus Set
     "Leggings": FZH_STATS["Leggings"]
 }
 
+HKR_STATS = { # Heroic Kronax Set (Secret)
+    "Helmet": {
+        1: 840.0003, 2: 848.40033, 3: 856.80036, 4: 865.20039, 5: 873.60042,
+        6: 882.00045, 7: 890.40048, 8: 898.80051, 9: 907.20054, 10: 915.60057, 11: 924.0006
+    },
+    "Chestplate": {
+        1: 840.0003, 2: 848.40033, 3: 856.80036, 4: 865.20039, 5: 873.60042,
+        6: 882.00045, 7: 890.40048, 8: 898.80051, 9: 907.20054, 10: 915.60057, 11: 924.0006
+    },
+    "Leggings": {
+        1: 840.0003, 2: 848.40033, 3: 856.80036, 4: 865.20039, 5: 873.60042,
+        6: 882.00045, 7: 890.40048, 8: 898.80051, 9: 907.20054, 10: 915.60057, 11: 924.0006
+    }
+}
+
+KR_STATS = { # Kronax Set (Mythic)
+    "Helmet": {
+        1: 787.5, 2: 795.375, 3: 803.25, 4: 811.125, 5: 819.0,
+        6: 826.875, 7: 834.75, 8: 842.625, 9: 850.5, 10: 858.375, 11: 866.25
+    },
+    "Chestplate": {
+        1: 787.5, 2: 795.375, 3: 803.25, 4: 811.125, 5: 819.0,
+        6: 826.875, 7: 834.75, 8: 842.625, 9: 850.5, 10: 858.375, 11: 866.25
+    },
+    "Leggings": {
+        1: 787.5, 2: 795.375, 3: 803.25, 4: 811.125, 5: 819.0,
+        6: 826.875, 7: 834.75, 8: 842.625, 9: 850.5, 10: 858.375, 11: 866.25
+    }
+}
+
 # --- C. МОДИФИКАТОРЫ REFORGE ---
 REFORGE_MODIFIERS = {
     "Vicious": 1.4, "Cruel": 1.3, "Savage": 1.1, "Dangerous": 1.1, "Frenzied": 1.3,
@@ -87,7 +117,7 @@ reforges = [
 ]
 
 WOODEN_SWORD_THRESHOLD_PERCENT = 4.7619
-ASC_BASE_UPGRADE_COST = 2917
+ASC_BASE_UPGRADE_COST = 2957
 WOODEN_SWORD_BASE = 11550
 
 # Заменить ASC_WEAPON_TYPES на:
@@ -177,6 +207,20 @@ ITEMS_MAPPING = {
         "type": "armor_set",
         "upgrade_cost_lvl1": 2112,
         "max_level": 34
+    },
+    "hks": {
+        "name": "Heroic Kronax Set",
+        "stats": HKR_STATS,
+        "type": "armor_set",
+        "upgrade_cost_lvl1": 2957,
+        "max_level": 45
+    },
+    "ks": {
+        "name": "Kronax Set",
+        "stats": KR_STATS,
+        "type": "armor_set",
+        "upgrade_cost_lvl1": 2535,
+        "max_level": 45
     },
     "tl": {
         "name": "Timelost Conqueror's Blade",
