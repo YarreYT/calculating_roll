@@ -30,7 +30,9 @@ from game_data import (
     DUAL_DAGGERS_V2_STATS,
     TIMELOST_CONQUERORS_BLADE_STATS,
     TIMELOST_CONQUERORS_BLADE_LE_STATS,
-    TIMELOST_THRESHOLD_PERCENT
+    TIMELOST_THRESHOLD_PERCENT,
+    HKR_STATS,
+    KR_STATS
 )
 
 from collections import deque
@@ -552,7 +554,7 @@ def unpack_armor_data(data_str: str, command: str) -> dict:
 
         values = parts[i].split(",")
         if len(values) == 3:
-            if command in ['fz', 'z']:
+            if command in ['fz', 'z', 'hk', 'k']:
                 armor_data[part_name] = {
                     'hp': float(values[0]),
                     'upg': int(values[1]),
@@ -1567,21 +1569,42 @@ def get_armor_prompt_text(command: str, stage: str, max_level: int) -> str:
     base += "<b>ВВОДИТЕ АРГУМЕНТЫ БЕЗ ВВОДА КОМАНДЫ ПО НОВОЙ</b>\n"
     base += "<i>Пример написания:</i>"
 
-    if command in ['fz', 'z']:
+    if command == 'fz':
         if stage == STAGE_HELMET:
             base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(3279 32 y)</i>"
         elif stage == STAGE_CHEST:
             base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2895 31 y)</i>"
         elif stage == STAGE_LEGS:
             base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2788 31 y)</i>"
-    elif command in ['wfz', 'wz']:
+    elif command == 'z':
+        if stage == STAGE_HELMET:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1678 16 y)</i>"
+        elif stage == STAGE_CHEST:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1006 14 n)</i>"
+        elif stage == STAGE_LEGS:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2337 26 y)</i>"
+    elif command == 'hk':
+        if stage == STAGE_HELMET:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1131 7 n)</i>"
+        elif stage == STAGE_CHEST:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(3370 32 y)</i>"
+        elif stage == STAGE_LEGS:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2574 18 y)</i>"
+    elif command == 'k':
+        if stage == STAGE_HELMET:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1226 9 n)</i>"
+        elif stage == STAGE_CHEST:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1500 19 n)</i>"
+        elif stage == STAGE_LEGS:
+            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2639 25 y)</i>"
+    elif command in ['wfz', 'wz', 'whk', 'wk']:
         if stage == STAGE_HELMET:
             base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>"
         elif stage == STAGE_CHEST:
             base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>"
         elif stage == STAGE_LEGS:
             base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
-    elif command in ['lfz', 'lz']:
+    elif command in ['lfz', 'lz', 'lhk', 'lk']:
         if stage == STAGE_HELMET:
             base += "\n\n<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>"
         elif stage == STAGE_CHEST:
@@ -1611,7 +1634,7 @@ def generate_armor_process_page(item_info: dict,
 
     steps = [f"🧮 <b>Детальные вычисления {item_info['name']} — {part_names[part]}</b>\n\n"]
 
-    if command in ('fz', 'z') and page_type == "process":
+    if command in ('fz', 'z', 'hk', 'k') and page_type == "process":
         # Анализ текущего состояния — ОБРАТНЫЙ РАСЧЁТ
         hp = data['hp']
         upg = data['upg']
@@ -1666,7 +1689,7 @@ def generate_armor_process_page(item_info: dict,
 
         return "\n".join(steps)
 
-    elif command in ['wfz', 'wz']:
+    elif command in ['wfz', 'wz', 'whk', 'wk']:
         # Прогноз
         roll = data['roll']
         upg = data['upg']
@@ -1697,7 +1720,7 @@ def generate_armor_process_page(item_info: dict,
         steps.append(f"<b>✓ Итоговое HP = {final_hp:,.0f}</b>")
         return "\n".join(steps)
 
-    elif command in ['lfz', 'lz']:
+    elif command in ['lfz', 'lz', 'lhk', 'lk']:
         roll = data['roll']
         upg1 = data['upg1']
         corrupted1 = data['corrupted1']
@@ -1767,7 +1790,7 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
 
     response = f"🛡️ <b>{item_info['name']} — {part_names[part]}</b>\n\n"
 
-    if command in ['fz', 'z']:
+    if command in ['fz', 'z', 'hk', 'k']:
         hp = data['hp']
         upg = data['upg']
         corrupted = data['corrupted']
@@ -1785,7 +1808,7 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
         response += f"<b>Gold spent:</b> <i>{spent:,}</i> 💰\n"
         response += f"<b>Gold left:</b> <i>{remaining:,}</i> 💰"
 
-    elif command in ['wfz', 'wz']:
+    elif command in ['wfz', 'wz', 'whk', 'wk']:
         roll = data['roll']
         upg = data['upg']
         corrupted = data['corrupted']
@@ -1800,7 +1823,7 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
         response += f"<b>HP:</b> <i>{int(hp_at_level):,}</i> ❤️\n\n"
         response += f"<b>Gold needed:</b> <i>{gold_needed:,}</i> 💰"
 
-    elif command in ['lfz', 'lz']:
+    elif command in ['lfz', 'lz', 'lhk', 'lk']:
         roll = data['roll']
         upg1 = data['upg1']
         corrupted1 = data['corrupted1']
@@ -1891,7 +1914,7 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
             is_current = (part == current_part)
 
             # Текст кнопок
-            if command in ['fz', 'z']:
+            if command in ['fz', 'z', 'hk', 'k']:
                 total_text = f"{'✓ ' if is_current and current_page == 'total' else ''}{part_names[part]} Total"
                 process_text = f"{'✓ ' if is_current and current_page == 'process' else ''}< Process"
                 tablet_text = f"{'✓ ' if is_current and current_page == 'tablet' else ''}< Tablet"
@@ -1901,14 +1924,14 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
                 part_buttons.append(InlineKeyboardButton(total_text, callback_data=base.format('t')))
                 part_buttons.append(InlineKeyboardButton(process_text, callback_data=base.format('p')))
                 part_buttons.append(InlineKeyboardButton(tablet_text, callback_data=base.format('b')))
-            elif command in ['wfz', 'wz']:
+            elif command in ['wfz', 'wz', 'whk', 'wk']:
                 total_text = f"{'✓ ' if is_current and current_page == 'total' else ''}{part_names[part]} Total"
                 process_text = f"{'✓ ' if is_current and current_page == 'process' else ''}< Process"
 
                 base = f"armor:{command}:{part}:{{}}:{user_msg_id}:{packed_data}"
                 part_buttons.append(InlineKeyboardButton(total_text, callback_data=base.format('t')))
                 part_buttons.append(InlineKeyboardButton(process_text, callback_data=base.format('p')))
-            elif command in ['lfz', 'lz']:
+            elif command in ['lfz', 'lz', 'lhk', 'lk']:
                 total_text = f"{'✓ ' if is_current and current_page == 'total' else ''}{part_names[part]} Total"
                 actual_text = f"{'✓ ' if is_current and current_page == 'actual_process' else ''}< Actual"
                 wished_text = f"{'✓ ' if is_current and current_page == 'wished_process' else ''}< Wished"
@@ -3240,7 +3263,13 @@ async def handle_armor_command(update: Update, context: ContextTypes.DEFAULT_TYP
         if await _send_error(update, context, error_message, ""):
             return
 
-    item_key = "fzh" if command in {'fz', 'wfz', 'lfz'} else "lzs"
+    item_key_map = {
+        'fz': 'fzh', 'wfz': 'fzh', 'lfz': 'fzh',
+        'z': 'lzs', 'wz': 'lzs', 'lz': 'lzs',
+        'hk': 'hks', 'whk': 'hks', 'lhk': 'hks',
+        'k': 'ks', 'wk': 'ks', 'lk': 'ks',
+    }
+    item_key = item_key_map.get(command, 'fzh')
     item_info = ITEMS_MAPPING[item_key]
     max_level = item_info['max_level']
     print(f"[DEBUG] item_key={item_key}, max_level={item_info['max_level']}")
@@ -3293,10 +3322,16 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     example_map = {
         'fz': '{hp} {upg} {y/n}',
         'z': '{hp} {upg} {y/n}',
+        'hk': '{hp} {upg} {y/n}',
+        'k': '{hp} {upg} {y/n}',
         'wfz': '{roll} > {upg} {y/n}',
         'wz': '{roll} > {upg} {y/n}',
+        'whk': '{roll} > {upg} {y/n}',
+        'wk': '{roll} > {upg} {y/n}',
         'lfz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
-        'lz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}'
+        'lz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
+        'lhk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
+        'lk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}'
     }
     example = f"{example_map.get(command, '{аргументы}')}"
 
@@ -3304,7 +3339,7 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
     stage_data = None
 
     # ---------- валидация ----------
-    if command in ('fz', 'z'):
+    if command in ('fz', 'z', 'hk', 'k'):
         if len(parts) != 3:
             errors.append(f"❌ Неверное количество аргументов ({len(parts)}). Ожидается 3.")
         else:
@@ -3318,7 +3353,7 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except ValueError:
                 errors.append(f"❌ UPG ({parts[1]}) должен быть числом.")
             if parts[2].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted ({parts[2]}) должен быть 'y' или 'n'.")
-    elif command in ('wfz', 'wz'):
+    elif command in ('wfz', 'wz', 'whk', 'wk'):
         if len(parts) != 4 or parts[1] != '>':
             errors.append("❌ Неверный формат. Ожидается: {roll} > {upg} {y/n}")
         else:
@@ -3333,7 +3368,7 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
             except ValueError:
                 errors.append(f"❌ UPG ({parts[2]}) должен быть числом.")
             if parts[3].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted ({parts[3]}) должен быть 'y' или 'n'.")
-    elif command in ('lfz', 'lz'):
+    elif command in ('lfz', 'lz', 'lhk', 'lk'):
         if len(parts) != 7 or parts[1] != '-' or parts[4] != '>':
             errors.append("❌ Неверный формат. Ожидается: {roll} - {upg1} {y/n1} > {upg2} {y/n2}")
         else:
@@ -3403,11 +3438,11 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     # ---------- сохранение данных ----------
-    if command in ('fz', 'z'):
+    if command in ('fz', 'z', 'hk', 'k'):
         stage_data = {'hp': float(parts[0]), 'upg': int(parts[1]), 'corrupted': parts[2].lower() == 'y'}
-    elif command in ('wfz', 'wz'):
+    elif command in ('wfz', 'wz', 'whk', 'wk'):
         stage_data = {'roll': int(parts[0]), 'upg': int(parts[2]), 'corrupted': parts[3].lower() == 'y'}
-    elif command in ('lfz', 'lz'):
+    elif command in ('lfz', 'lz', 'lhk', 'lk'):
         stage_data = {
             'roll': int(parts[0]),
             'upg1': int(parts[2]), 'corrupted1': parts[3].lower() == 'y',
@@ -3550,7 +3585,13 @@ async def armor_results_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     # Определяем item_key
-    item_key = "fzh" if command in ['fz', 'wfz', 'lfz'] else "lzs"
+    item_key_map = {
+        'fz': 'fzh', 'wfz': 'fzh', 'lfz': 'fzh',
+        'z': 'lzs', 'wz': 'lzs', 'lz': 'lzs',
+        'hk': 'hks', 'whk': 'hks', 'lhk': 'hks',
+        'k': 'ks', 'wk': 'ks', 'lk': 'ks',
+    }
+    item_key = item_key_map.get(command, 'fzh')
     item_info = ITEMS_MAPPING[item_key]
 
     # Преобразуем страницу
@@ -3850,11 +3891,11 @@ async def generate_armor_results(update: Update, context: ContextTypes.DEFAULT_T
             data = armor_data[part]
             part_key = PART_MAPPING[part]
             base_stats = item_info['stats'][part_key]
-            if command in ['fz', 'z']:
+            if command in ['fz', 'z', 'hk', 'k']:
                 roll = find_roll_for_armor(base_stats, data['hp'], data['upg'], data['corrupted'])
                 base_hp = base_stats[roll]
                 total_hp += data['hp']
-            elif command in ['wfz', 'wz']:
+            elif command in ['wfz', 'wz', 'whk', 'wk']:
                 base_hp = base_stats[data['roll']]
                 total_hp += calculate_armor_stat_at_level(base_hp, data['upg'], data['corrupted'], 1.0, "armor")
         text += f"\n\n<b>TOTAL HP:</b> <i>{int(total_hp):,}</i> ❤️"
@@ -4108,8 +4149,10 @@ def get_main_page_text():
 `!conqr` - Список роллов Конки (Conqueror's Blade)
 `!ascr` - Список роллов всех Ascended оружий
 `!tlr` - Список роллов для TL конков (TimeLost Conqueror's Blade)
-`!fzr` - Список роллов Furious Zeus Set (броня)
-`!zr` - Список роллов Zeus Set (броня)
+`!fzr` - Список роллов Furious Zeus Set 
+`!zr` - Список роллов Zeus Set 
+`!hkr` - Список роллов Heroic Kronax Set
+`!kr` - Список роллов Kronax Set
 
 *Команды для владельца групп:*
 `!roll_id` {ID топика} {Название}
@@ -4162,7 +4205,7 @@ def get_current_page_text():
 `!tl` {dmg} {upg} {y/n} {reforge}
 
 *Броня:* 
-`!fz` / `!z`
+`!fz` / `!z` / `!hk` / `!k`
 На сообщение бота:
 {hp} {upg} {y/n}
 """
@@ -4182,7 +4225,7 @@ def get_w_page_text():
 `!wtl` {ролл} > {upg} {y/n} {reforge}
 
 *Броня:* 
-`!wfz` / `!wz`
+`!wfz` / `!wz` / `!whk` / `!wk`
 На сообщение бота:
 {roll} > {upg} {y/n}
 """
@@ -4202,7 +4245,7 @@ def get_l_page_text():
 `!ltl` {ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}
 
 *Броня:* 
-`!lfz` / `!lz`
+`!lfz` / `!lz` / `!lhk` / `!lk`
 На сообщение бота
 {roll} - {upg1} {y/n1} > {upg2} {y/n2}
 """
@@ -4288,6 +4331,8 @@ def get_armor_table_keyboard(prefix, current_page="helmet", user_message_id=None
 CALLBACK_PREFIX_TLR = "tlr"
 CALLBACK_TLR_NORMAL = "normal"
 CALLBACK_TLR_LE = "le"
+CALLBACK_PREFIX_HKRR = "hkrr"
+CALLBACK_PREFIX_KRR = "krr"
 
 def format_tl_table_text(current_page="normal"):
     """Форматирование таблицы роллов Timelost"""
@@ -4436,12 +4481,22 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
         return
 
     # Табличные команды (conqr, doomr, fzr, zr)
-    if prefix in (CALLBACK_PREFIX_CONQR, CALLBACK_PREFIX_DOOMR, CALLBACK_PREFIX_FZR, CALLBACK_PREFIX_ZR):
+    if prefix in (CALLBACK_PREFIX_CONQR, CALLBACK_PREFIX_DOOMR, CALLBACK_PREFIX_FZR, CALLBACK_PREFIX_ZR, "hkrr", "krr"):
         if prefix in (CALLBACK_PREFIX_CONQR, CALLBACK_PREFIX_DOOMR):
             title = "CONQUEROR_ROLLS" if prefix == CALLBACK_PREFIX_CONQR else "DOOM_ROLLS"
             stats_dict = CONQUERORS_BLADE_STATS if prefix == CALLBACK_PREFIX_CONQR else DOOMBRINGER_STATS
             format_func = format_sword_table_text
             keyboard_func = get_weapon_table_keyboard
+        elif prefix == "hkrr":
+            title = "HEROIC_KRONAX_ARMOR"
+            stats_dict = HKR_STATS
+            format_func = format_armor_part_table_text
+            keyboard_func = get_armor_table_keyboard
+        elif prefix == "krr":
+            title = "KRONAX_ARMOR"
+            stats_dict = KR_STATS
+            format_func = format_armor_part_table_text
+            keyboard_func = get_armor_table_keyboard
         else:
             title = "FURIOUS_ZEUS_ARMOR" if prefix == CALLBACK_PREFIX_FZR else "ZEUS_ARMOR"
             stats_dict = FZH_STATS if prefix == CALLBACK_PREFIX_FZR else LZS_STATS
@@ -4906,6 +4961,18 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
         await handle_armor_command(update, context, "lfz")
     elif command == "lz":
         await handle_armor_command(update, context, "lz")
+    elif command in ('k',):
+        await handle_armor_command(update, context, 'k')
+    elif command in ('hk',):
+        await handle_armor_command(update, context, 'hk')
+    elif command == 'wk':
+        await handle_armor_command(update, context, 'wk')
+    elif command == 'whk':
+        await handle_armor_command(update, context, 'whk')
+    elif command == 'lk':
+        await handle_armor_command(update, context, 'lk')
+    elif command == 'lhk':
+        await handle_armor_command(update, context, 'lhk')
 
     # Служебные команды
     elif command == "crhelp":
@@ -4946,6 +5013,20 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
     elif command == "ascr":
         await asc_table_command(update, context)
         return
+    elif command == 'kr':
+        await update.message.reply_text(
+            text=format_armor_part_table_text("KRONAX_ARMOR", KR_STATS, "helmet"),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=get_armor_table_keyboard("krr", "helmet", update.message.message_id),
+            reply_to_message_id=update.message.message_id
+        )
+    elif command == 'hkr':
+        await update.message.reply_text(
+            text=format_armor_part_table_text("HEROIC_KRONAX_ARMOR", HKR_STATS, "helmet"),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=get_armor_table_keyboard("hkrr", "helmet", update.message.message_id),
+            reply_to_message_id=update.message.message_id
+        )
     # Обработка неизвестных команд
     else:
         population = list(UNKNOWN_COMMAND_RESPONSES.keys())
