@@ -533,16 +533,20 @@ def pack_armor_data(armor_data: dict, command: str) -> str:
         if not data:
             parts.append('')
             continue
-        if 'hp' in data:  # fz/z
-            parts.append(f"{int(data['hp'])},{data['upg']},{int(data['corrupted'])}")
-        elif 'upg1' in data:  # lfz/lz
-            parts.append(
-                f"{data['roll']},{data['upg1']},{int(data['corrupted1'])},{data['upg2']},{int(data['corrupted2'])}")
-        else:  # wfz/wz
-            parts.append(f"{data['roll']},{data['upg']},{int(data['corrupted'])}")
+
+        try:
+            if 'hp' in data:  # fz/z/hk/k
+                parts.append(f"{int(data['hp'])},{data['upg']},{int(data['corrupted'])}")
+            elif 'upg1' in data:  # lfz/lz/lhk/lk
+                parts.append(
+                    f"{data['roll']},{data['upg1']},{int(data['corrupted1'])},{data['upg2']},{int(data['corrupted2'])}")
+            else:  # wfz/wz/whk/wk
+                parts.append(f"{data['roll']},{data['upg']},{int(data['corrupted'])}")
+        except (KeyError, ValueError) as e:
+            print(f"Ошибка упаковки данных для {part}: {e}")
+            parts.append('')  # Пустые данные при ошибке
 
     return ";".join(parts)
-
 
 def unpack_armor_data(data_str: str, command: str) -> dict:
     armor_data = {'helm': None, 'chest': None, 'legs': None}
@@ -1548,74 +1552,6 @@ def generate_asc_tablet_page(item_key, roll, corr, reforge_mult, reforge_name):
     clean_name = item_info['name'].replace(' ', '_').replace("'", '').upper()
     block_name = f"{clean_name}_TABLET"
     return f"```{block_name}\n{title_line}\n\n{table_content}\n```"
-
-def get_armor_stage_keyboard(stage: str, user_msg_id: int) -> InlineKeyboardMarkup:
-    buttons = []
-    # ✅ Добавляем Пропустить для ВСЕХ этапов (шлем, нагрудник, штаны)
-    buttons.append([InlineKeyboardButton("Пропустить", callback_data=f"armor_skip:{stage}:{user_msg_id}")])
-    # Кнопка Отмена всегда присутствует
-    buttons.append([InlineKeyboardButton("Отмена", callback_data=f"armor_cancel:{user_msg_id}")])
-    return InlineKeyboardMarkup(buttons)
-
-
-def get_armor_prompt_text(command: str, stage: str, max_level: int) -> str:
-    stage_names = {
-        "helm": "- <b>Шлема</b>",
-        "chest": "- <b>Нагрудника</b>",
-        "legs": "- <b>Штанов</b>"
-    }
-    # Переносы строк лучше ставить ПЕРЕД тегами, а не внутри них
-    base = f"🤖 Введите данные для {stage_names[stage]}:\n"
-    base += "<b>ВВОДИТЕ АРГУМЕНТЫ БЕЗ ВВОДА КОМАНДЫ ПО НОВОЙ</b>\n"
-    base += "<i>Пример написания:</i>"
-
-    if command == 'fz':
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(3279 32 y)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2895 31 y)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2788 31 y)</i>"
-    elif command == 'z':
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1678 16 y)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1006 14 n)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2337 26 y)</i>"
-    elif command == 'hk':
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1131 7 n)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(3370 32 y)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2574 18 y)</i>"
-    elif command == 'k':
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1226 9 n)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(1500 19 n)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{hp} {upg} {y/n}</b>\n<i>(2639 25 y)</i>"
-    elif command in ['wfz', 'wz', 'whk', 'wk']:
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
-    elif command in ['lfz', 'lz', 'lhk', 'lk']:
-        if stage == STAGE_HELMET:
-            base += "\n\n<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>"
-        elif stage == STAGE_CHEST:
-            base += "\n\n<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(1 - 35 y > 40 y)</i>"
-        elif stage == STAGE_LEGS:
-            base += "\n\n<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(11 - 40 y > 45 y)</i>"
-    base += f"\n\n(макс. ур: {max_level})"
-    base += f"\n(ролл 1-11)"
-
-    return base
-
 
 def generate_armor_process_page(item_info: dict,
                                 armor_data: dict,
@@ -3251,18 +3187,190 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
     except Exception as e:
         await update.message.reply_text(f"Непредвиденная ошибка при расчёте: {e}")
 
+ARMOR_STATUS_NONE = "none"      # Ничего (серый)
+ARMOR_STATUS_EDITING = "editing"  # Редактируется (желтый)
+ARMOR_STATUS_SAVED = "saved"      # Записано (зеленый)
+
+# Эмодзи статусов
+STATUS_EMOJI = {
+    ARMOR_STATUS_NONE: "⚪",
+    ARMOR_STATUS_EDITING: "🟡",
+    ARMOR_STATUS_SAVED: "🟢"
+}
+
+ARMOR_PART_NAMES = {
+    STAGE_HELMET: "Шлем",
+    STAGE_CHEST: "Нагрудник",
+    STAGE_LEGS: "Штаны"
+}
+
+ARMOR_COMMAND_NAMES = {
+    'fz': 'Furious Zeus Set',
+    'z': 'Legendary Zeus Set',
+    'hk': 'Heroic Kronax Set',
+    'k': 'Kronax Set',
+    'wfz': 'Furious Zeus Set',
+    'wz': 'Legendary Zeus Set',
+    'whk': 'Heroic Kronax Set',
+    'wk': 'Kronax Set',
+    'lfz': 'Furious Zeus Set',
+    'lz': 'Legendary Zeus Set',
+    'lhk': 'Heroic Kronax Set',
+    'lk': 'Kronax Set'
+}
+
+
+def get_armor_input_prompt(command: str, selected_part: str, max_level: int) -> str:
+    """Генерирует текст приглашения для ввода данных брони"""
+    armor_name = ARMOR_COMMAND_NAMES.get(command, 'Броня')
+    selected_name = ARMOR_PART_NAMES.get(selected_part, 'Неизвестно')
+
+    text = f"🛡️ <b>Ввод данных для брони — {armor_name}</b>\n\n"
+    text += f"Выберите часть брони: <b>{selected_name}</b>\n\n"
+    text += "<b>ВВОДИТЕ АРГУМЕНТЫ БЕЗ ВВОДА КОМАНДЫ ПО НОВОЙ</b>\n"
+    text += "<i>Пример написания:</i>\n\n"
+
+    # Примеры ввода в зависимости от команды и части
+    examples = {
+        'fz': {
+            STAGE_HELMET: "<b>{hp} {upg} {y/n}</b>\n<i>(3279 32 y)</i>",
+            STAGE_CHEST: "<b>{hp} {upg} {y/n}</b>\n<i>(2895 31 y)</i>",
+            STAGE_LEGS: "<b>{hp} {upg} {y/n}</b>\n<i>(2788 31 y)</i>"
+        },
+        'z': {
+            STAGE_HELMET: "<b>{hp} {upg} {y/n}</b>\n<i>(1678 16 y)</i>",
+            STAGE_CHEST: "<b>{hp} {upg} {y/n}</b>\n<i>(1006 14 n)</i>",
+            STAGE_LEGS: "<b>{hp} {upg} {y/n}</b>\n<i>(2337 26 y)</i>"
+        },
+        'hk': {
+            STAGE_HELMET: "<b>{hp} {upg} {y/n}</b>\n<i>(1131 7 n)</i>",
+            STAGE_CHEST: "<b>{hp} {upg} {y/n}</b>\n<i>(3370 32 y)</i>",
+            STAGE_LEGS: "<b>{hp} {upg} {y/n}</b>\n<i>(2574 18 y)</i>"
+        },
+        'k': {
+            STAGE_HELMET: "<b>{hp} {upg} {y/n}</b>\n<i>(1226 9 n)</i>",
+            STAGE_CHEST: "<b>{hp} {upg} {y/n}</b>\n<i>(1500 19 n)</i>",
+            STAGE_LEGS: "<b>{hp} {upg} {y/n}</b>\n<i>(2639 25 y)</i>"
+        },
+        'wfz': {
+            STAGE_HELMET: "<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>",
+            STAGE_CHEST: "<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>",
+            STAGE_LEGS: "<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
+        },
+        'wz': {
+            STAGE_HELMET: "<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>",
+            STAGE_CHEST: "<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>",
+            STAGE_LEGS: "<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
+        },
+        'whk': {
+            STAGE_HELMET: "<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>",
+            STAGE_CHEST: "<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>",
+            STAGE_LEGS: "<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
+        },
+        'wk': {
+            STAGE_HELMET: "<b>{roll} > {upg} {y/n}</b>\n<i>(6 > 21 n)</i>",
+            STAGE_CHEST: "<b>{roll} > {upg} {y/n}</b>\n<i>(7 > 32 y)</i>",
+            STAGE_LEGS: "<b>{roll} > {upg} {y/n}</b>\n<i>(11 > 45 y)</i>"
+        },
+        'lfz': {
+            STAGE_HELMET: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>",
+            STAGE_CHEST: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(1 - 35 y > 40 y)</i>",
+            STAGE_LEGS: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(11 - 40 y > 45 y)</i>"
+        },
+        'lz': {
+            STAGE_HELMET: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>",
+            STAGE_CHEST: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(1 - 35 y > 40 y)</i>",
+            STAGE_LEGS: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(11 - 40 y > 45 y)</i>"
+        },
+        'lhk': {
+            STAGE_HELMET: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>",
+            STAGE_CHEST: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(1 - 35 y > 40 y)</i>",
+            STAGE_LEGS: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(11 - 40 y > 45 y)</i>"
+        },
+        'lk': {
+            STAGE_HELMET: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(8 - 21 n > 45 y)</i>",
+            STAGE_CHEST: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(1 - 35 y > 40 y)</i>",
+            STAGE_LEGS: "<b>{roll} - {upg1} {y/n1} > {upg2} {y/n2}</b>\n<i>(11 - 40 y > 45 y)</i>"
+        }
+    }
+
+    example_text = examples.get(command, {}).get(selected_part, "<b>{данные}</b>")
+    text += example_text
+
+    # Добавляем условности
+    if command in ['fz', 'z', 'hk', 'k']:
+        text += f"\n\n<i>Ролл определяется автоматически</i>"
+        text += f"\n<i>Макс. уровень: {max_level}</i>"
+    elif command in ['wfz', 'wz', 'whk', 'wk']:
+        text += f"\n\n<i>Диапазон роллов: 1-11</i>"
+        text += f"\n<i>Макс. уровень: {max_level}</i>"
+    else:  # l-команды
+        text += f"\n\n<i>Диапазон роллов: 1-11</i>"
+        text += f"\n<i>Макс. уровень: {max_level}</i>"
+        text += f"\n<i>y/n1 — текущий corrupted, y/n2 — желаемый</i>"
+
+    return text
+
+
+def get_armor_parts_keyboard(command: str, user_id: int, selected_part: str = None) -> InlineKeyboardMarkup:
+    """Генерирует клавиатуру выбора частей брони"""
+    if user_id not in user_armor_data:
+        return None
+
+    user_data = user_armor_data[user_id]
+    parts_status = user_data.get('parts_status', {
+        STAGE_HELMET: ARMOR_STATUS_NONE,
+        STAGE_CHEST: ARMOR_STATUS_NONE,
+        STAGE_LEGS: ARMOR_STATUS_NONE
+    })
+
+    buttons = []
+
+    # Кнопки частей брони
+    for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS]:
+        part_name = ARMOR_PART_NAMES[part]
+        status = parts_status.get(part, ARMOR_STATUS_NONE)
+
+        # Если эта часть сейчас выбрана — показываем как редактируется
+        if selected_part == part:
+            display_status = ARMOR_STATUS_EDITING
+            display_text = f"{STATUS_EMOJI[display_status]} {part_name} [Редактируется]"
+        else:
+            display_status = status
+            if status == ARMOR_STATUS_NONE:
+                display_text = f"{STATUS_EMOJI[display_status]} {part_name} [Ничего]"
+            elif status == ARMOR_STATUS_SAVED:
+                display_text = f"{STATUS_EMOJI[display_status]} {part_name} [Записано]"
+            else:
+                display_text = f"{STATUS_EMOJI[display_status]} {part_name} [Редактируется]"
+
+        callback_data = f"armor_part:{part}:{user_id}"
+        buttons.append([InlineKeyboardButton(display_text, callback_data=callback_data)])
+
+    # Кнопки управления
+    control_buttons = []
+    control_buttons.append(InlineKeyboardButton("✅ Завершить", callback_data=f"armor_finish:{user_id}"))
+    control_buttons.append(InlineKeyboardButton("❌ Отменить", callback_data=f"armor_cancel:{user_id}"))
+    buttons.append(control_buttons)
+
+    return InlineKeyboardMarkup(buttons)
+
 
 async def handle_armor_command(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str):
+    """Обработчик команд брони (!fz, !z, !hk, !k, !wfz, и т.д.)"""
     if not is_allowed_thread(update):
         return
 
     user_id = update.effective_user.id
+
+    # Проверка на активную сессию
     if user_id in user_armor_data:
-        error_message = "🛑 **Вы уже начали сессию, закончите её введением данных, либо же нажатием кнопки ""Отмена"".**\n"
-        error_message += "Если вы вводите аргументы вместе с командой \n(типа: !wfz 7 > 32 y),\n то просто не пишите аргументы с командой. \nЭто написано у вас в ПРИМЕРЕ НАПИСАНИЯ. Будьте внимательнее"
+        error_message = "🛑 **Вы уже начали сессию ввода данных для брони.**\n"
+        error_message += "Закончите текущую сессию, нажав «Завершить» или «Отменить»."
         if await _send_error(update, context, error_message, ""):
             return
 
+    # Определяем item_key
     item_key_map = {
         'fz': 'fzh', 'wfz': 'fzh', 'lfz': 'fzh',
         'z': 'lzs', 'wz': 'lzs', 'lz': 'lzs',
@@ -3272,145 +3380,439 @@ async def handle_armor_command(update: Update, context: ContextTypes.DEFAULT_TYP
     item_key = item_key_map.get(command, 'fzh')
     item_info = ITEMS_MAPPING[item_key]
     max_level = item_info['max_level']
-    print(f"[DEBUG] item_key={item_key}, max_level={item_info['max_level']}")
 
     # Инициализируем данные пользователя
     user_armor_data[user_id] = {
         'command': command,
         'data': {STAGE_HELMET: None, STAGE_CHEST: None, STAGE_LEGS: None},
-        'stage': STAGE_HELMET,
+        'parts_status': {STAGE_HELMET: ARMOR_STATUS_NONE, STAGE_CHEST: ARMOR_STATUS_NONE,
+                         STAGE_LEGS: ARMOR_STATUS_NONE},
+        'selected_part': None,  # Ничего не выбрано изначально
         'item_key': item_key,
         'max_level': max_level,
         'user_msg_id': update.message.message_id,
-        'chat_id': update.effective_chat.id  # Сохраняем chat_id
+        'chat_id': update.effective_chat.id,
+        'thread_id': update.effective_message.message_thread_id,
+        'bot_msg_id': None
     }
-    # Отправляем первый запрос
-    prompt_text = get_armor_prompt_text(command, STAGE_HELMET, max_level)
-    keyboard = get_armor_stage_keyboard(STAGE_HELMET, update.message.message_id)
+
+    # Отправляем начальное сообщение (ничего не выбрано)
+    armor_name = ARMOR_COMMAND_NAMES.get(command, 'Броня')
+    text = f"🛡️ <b>Ввод данных для брони — {armor_name}</b>\n\n"
+    text += "Выберите часть брони: <b>Ничего</b>\n\n"
+    text += "Нажмите на часть брони, чтобы ввести для неё данные."
+
+    keyboard = get_armor_parts_keyboard(command, user_id, None)
 
     bot_msg = await update.message.reply_text(
-        text=prompt_text,
-        parse_mode=ParseMode.HTML,  # ← вот это
+        text=text,
+        parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
         reply_to_message_id=update.message.message_id
     )
-    # Сохраняем ID сообщения бота
+
     user_armor_data[user_id]['bot_msg_id'] = bot_msg.message_id
 
-_last_err: dict[int, tuple[int, str]] = {}
-_err_queue: dict[int, deque[int]] = {}
+
+async def armor_part_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик выбора части брони"""
+    query = update.callback_query
+    await query.answer()
+
+    if not is_allowed_thread(update):
+        return
+
+    # Парсим callback_data: armor_part:{part}:{user_id}
+    data_parts = query.data.split(":")
+    if len(data_parts) != 3:
+        return
+
+    part = data_parts[1]
+    user_id = int(data_parts[2])
+
+    # Проверка владельца
+    if user_id != update.effective_user.id:
+        await query.answer("Это не ваша сессия!", show_alert=True)
+        return
+
+    if user_id not in user_armor_data:
+        await query.answer("Сессия устарела", show_alert=True)
+        return
+
+    user_data = user_armor_data[user_id]
+    command = user_data['command']
+    max_level = user_data['max_level']
+
+    # Устанавливаем выбранную часть
+    user_data['selected_part'] = part
+
+    # Генерируем приглашение для ввода
+    text = get_armor_input_prompt(command, part, max_level)
+    keyboard = get_armor_parts_keyboard(command, user_id, part)
+
+    try:
+        await query.message.edit_text(
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        print(f"Ошибка при редактировании сообщения брони: {e}")
+
+
+async def armor_finish_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия Завершить"""
+    query = update.callback_query
+    await query.answer()
+
+    if not is_allowed_thread(update):
+        return
+
+    # Парсим callback_data: armor_finish:{user_id}
+    data_parts = query.data.split(":")
+    if len(data_parts) != 2:
+        return
+
+    user_id = int(data_parts[1])
+
+    # Проверка владельца
+    if user_id != update.effective_user.id:
+        await query.answer("Это не ваша сессия!", show_alert=True)
+        return
+
+    if user_id not in user_armor_data:
+        await query.answer("Сессия уже завершена", show_alert=True)
+        return
+
+    user_data = user_armor_data[user_id]
+    armor_data = user_data['data']
+
+    # Проверяем, записана ли хотя бы одна часть
+    has_any_data = any(armor_data[part] is not None for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS])
+
+    # === КРИТИЧНО: Гарантируем удаление сессии в любом случае ===
+    try:
+        if not has_any_data:
+            # СНАЧАЛА отправляем гневное сообщение как ОТВЕТ на команду пользователя
+            insults = [
+                "Ну и, что ты решил делать? Ты нихуя не написал, пиши команду заново!",
+                "Нету данных - нет конфетки, пошёл нахуй! Если тебе не надо ещё раз писать ебаную команду",
+                "Ахахаххаах, ебать. Пиши заново, ебанько) Без данных тебя даже в дурку не примут",
+                "Еблан, ты вкурсе что ты нихуя не ввёл нигде? Пиши заново, блять",
+                "ЧМО ЕБАНОЕ, НАХУЙ ЕБЁШЬ МОЗГИ? ТЫ ВСЁ СКИПНУЛ НИХУЯ НЕ НАПИСАВ И РАДИ ЧЕГО? ЗАНОВО!",
+                "Я бы желал вам, месье, дать по еблищу, но мне жаль, что я цифровая моделька. Имейте совесть, не ебите мозг даже мне, и админу. Если вам ненадо вводить, не пишите ебаную команду, сука!",
+                "Это что-то типа: \"ХУЕСОСЫ ЕБАНЫЕ! О, кнопка Завершить\" Уёбок. Пиши заново"
+            ]
+
+            try:
+                insult_msg = await context.bot.send_message(
+                    chat_id=user_data['chat_id'],
+                    message_thread_id=user_data.get('thread_id'),
+                    text=random.choice(insults),
+                    reply_to_message_id=user_data['user_msg_id']  # ОТВЕТ на команду
+                )
+
+                # ТЕПЕРЬ удаляем сообщения: сначала бота, потом пользователя
+                try:
+                    await query.message.delete()  # Сообщение бота с кнопками
+                except:
+                    pass
+
+                try:
+                    await context.bot.delete_message(
+                        chat_id=user_data['chat_id'],
+                        message_id=user_data['user_msg_id']  # Команда пользователя
+                    )
+                except:
+                    pass
+
+                # Удаляем гневное сообщение через 5 секунд
+                async def delete_insult_after_delay():
+                    await asyncio.sleep(5)
+                    try:
+                        await context.bot.delete_message(
+                            chat_id=user_data['chat_id'],
+                            message_id=insult_msg.message_id
+                        )
+                    except:
+                        pass
+
+                asyncio.create_task(delete_insult_after_delay())
+
+            except Exception as e:
+                print(f"Не удалось отправить гневное сообщение: {e}")
+                # Если не получилось отправить ответ, просто удаляем сообщение бота
+                try:
+                    await query.message.delete()
+                except:
+                    pass
+
+        else:
+            # Генерируем результаты
+            await generate_armor_results(update, context, user_id, from_callback=True)
+
+    except Exception as e:
+        print(f"Ошибка в armor_finish_callback: {e}")
+        import traceback
+        traceback.print_exc()
+        try:
+            await query.message.reply_text("❌ Произошла ошибка при обработке.")
+        except:
+            pass
+    finally:
+        # ГАРАНТИРОВАННО удаляем сессию
+        if user_id in user_armor_data:
+            del user_armor_data[user_id]
+
+async def armor_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик нажатия Отменить"""
+    query = update.callback_query
+    await query.answer()
+
+    # Парсим callback_data: armor_cancel:{user_id}
+    data_parts = query.data.split(":")
+    if len(data_parts) != 2:
+        return
+
+    user_id = int(data_parts[1])
+
+    # Проверка владельца
+    if user_id != update.effective_user.id:
+        await query.answer("Это не ваша сессия!", show_alert=True)
+        return
+
+    if user_id not in user_armor_data:
+        await query.answer("Сессия уже завершена", show_alert=True)
+        return
+
+    user_data = user_armor_data[user_id]
+
+    # Удаляем сообщения
+    try:
+        await query.message.delete()
+        await context.bot.delete_message(
+            chat_id=user_data['chat_id'],
+            message_id=user_data['user_msg_id']
+        )
+    except:
+        pass
+
+    del user_armor_data[user_id]
+
+async def handle_armor_command(update: Update, context: ContextTypes.DEFAULT_TYPE, command: str):
+    """Обработчик команд брони (!fz, !z, !hk, !k, !wfz, и т.д.)"""
+    if not is_allowed_thread(update):
+        return
+
+    user_id = update.effective_user.id
+
+    # Проверка на активную сессию
+    if user_id in user_armor_data:
+        error_message = "🛑 **Вы уже начали сессию ввода данных для брони.**\n"
+        error_message += "Закончите текущую сессию, нажав «Завершить» или «Отменить»."
+        if await _send_error(update, context, error_message, ""):
+            return
+
+    # Определяем item_key
+    item_key_map = {
+        'fz': 'fzh', 'wfz': 'fzh', 'lfz': 'fzh',
+        'z': 'lzs', 'wz': 'lzs', 'lz': 'lzs',
+        'hk': 'hks', 'whk': 'hks', 'lhk': 'hks',
+        'k': 'ks', 'wk': 'ks', 'lk': 'ks',
+    }
+    item_key = item_key_map.get(command, 'fzh')
+    item_info = ITEMS_MAPPING[item_key]
+    max_level = item_info['max_level']
+
+    # Инициализируем данные пользователя
+    user_armor_data[user_id] = {
+        'command': command,
+        'data': {STAGE_HELMET: None, STAGE_CHEST: None, STAGE_LEGS: None},
+        'parts_status': {STAGE_HELMET: ARMOR_STATUS_NONE, STAGE_CHEST: ARMOR_STATUS_NONE,
+                         STAGE_LEGS: ARMOR_STATUS_NONE},
+        'selected_part': None,  # Ничего не выбрано изначально
+        'item_key': item_key,
+        'max_level': max_level,
+        'user_msg_id': update.message.message_id,
+        'chat_id': update.effective_chat.id,
+        'bot_msg_id': None
+    }
+
+    # Отправляем начальное сообщение (ничего не выбрано)
+    armor_name = ARMOR_COMMAND_NAMES.get(command, 'Броня')
+    text = f"🛡️ <b>Ввод данных для брони — {armor_name}</b>\n\n"
+    text += "Выберите часть брони: <b>Ничего</b>\n\n"
+    text += "Нажмите на часть брони, чтобы ввести для неё данные."
+
+    keyboard = get_armor_parts_keyboard(command, user_id, None)
+
+    bot_msg = await update.message.reply_text(
+        text=text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
+        reply_to_message_id=update.message.message_id
+    )
+
+    user_armor_data[user_id]['bot_msg_id'] = bot_msg.message_id
 
 
 async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик ввода данных пользователем"""
+    # ИСПРАВЛЕНО: убран неверный global, используем правильную переменную _error_msgs
+    # global _err_queue  ← УДАЛИТЬ ЭТО
+
     if not is_allowed_thread(update):
         return
 
     text = update.message.text.strip()
     if text.startswith('!'):
-        return  # пусть bang_router разбирается
+        return  # Пусть bang_router разбирается
 
     user_id = update.effective_user.id
     if user_id not in user_armor_data:
-        return  # не наш диалог — игнорируем
+        return  # Не наш диалог — игнорируем
 
     user_data = user_armor_data[user_id]
+
+    # Проверяем, выбрана ли часть для редактирования
+    selected_part = user_data.get('selected_part')
+    if not selected_part:
+        # Ничего не выбрано — игнорируем или показываем подсказку
+        return
+
     command = user_data['command']
-    stage = user_data['stage']
     max_level = user_data['max_level']
     parts = text.split()
 
-    example_map = {
-        'fz': '{hp} {upg} {y/n}',
-        'z': '{hp} {upg} {y/n}',
-        'hk': '{hp} {upg} {y/n}',
-        'k': '{hp} {upg} {y/n}',
-        'wfz': '{roll} > {upg} {y/n}',
-        'wz': '{roll} > {upg} {y/n}',
-        'whk': '{roll} > {upg} {y/n}',
-        'wk': '{roll} > {upg} {y/n}',
-        'lfz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
-        'lz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
-        'lhk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
-        'lk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}'
-    }
-    example = f"{example_map.get(command, '{аргументы}')}"
-
+    # Валидация в зависимости от типа команды
     errors = []
     stage_data = None
 
-    # ---------- валидация ----------
     if command in ('fz', 'z', 'hk', 'k'):
         if len(parts) != 3:
             errors.append(f"❌ Неверное количество аргументов ({len(parts)}). Ожидается 3.")
         else:
             try:
-                float(parts[0])
+                hp = float(parts[0])
             except ValueError:
                 errors.append(f"❌ HP ({parts[0]}) должен быть числом.")
             try:
                 upg = int(parts[1])
-                if not 0 <= upg <= max_level: errors.append(f"❌ UPG ({upg}) должен быть в диапазоне 0-{max_level}.")
+                if not 0 <= upg <= max_level:
+                    errors.append(f"❌ UPG ({upg}) должен быть в диапазоне 0-{max_level}.")
             except ValueError:
                 errors.append(f"❌ UPG ({parts[1]}) должен быть числом.")
-            if parts[2].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted ({parts[2]}) должен быть 'y' или 'n'.")
+            if parts[2].lower() not in ('y', 'n'):
+                errors.append(f"❌ Corrupted ({parts[2]}) должен быть 'y' или 'n'.")
+
+            if not errors:
+                stage_data = {
+                    'hp': float(parts[0]),
+                    'upg': int(parts[1]),
+                    'corrupted': parts[2].lower() == 'y'
+                }
+
     elif command in ('wfz', 'wz', 'whk', 'wk'):
         if len(parts) != 4 or parts[1] != '>':
             errors.append("❌ Неверный формат. Ожидается: {roll} > {upg} {y/n}")
         else:
             try:
                 roll = int(parts[0])
-                if not 1 <= roll <= 11: errors.append(f"❌ Roll ({roll}) должен быть в диапазоне 1-11.")
+                if not 1 <= roll <= 11:
+                    errors.append(f"❌ Roll ({roll}) должен быть в диапазоне 1-11.")
             except ValueError:
                 errors.append(f"❌ Roll ({parts[0]}) должен быть числом.")
             try:
                 upg = int(parts[2])
-                if not 0 <= upg <= max_level: errors.append(f"❌ UPG ({upg}) должен быть в диапазоне 0-{max_level}.")
+                if not 0 <= upg <= max_level:
+                    errors.append(f"❌ UPG ({upg}) должен быть в диапазоне 0-{max_level}.")
             except ValueError:
                 errors.append(f"❌ UPG ({parts[2]}) должен быть числом.")
-            if parts[3].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted ({parts[3]}) должен быть 'y' или 'n'.")
+            if parts[3].lower() not in ('y', 'n'):
+                errors.append(f"❌ Corrupted ({parts[3]}) должен быть 'y' или 'n'.")
+
+            if not errors:
+                stage_data = {
+                    'roll': int(parts[0]),
+                    'upg': int(parts[2]),
+                    'corrupted': parts[3].lower() == 'y'
+                }
+
     elif command in ('lfz', 'lz', 'lhk', 'lk'):
         if len(parts) != 7 or parts[1] != '-' or parts[4] != '>':
             errors.append("❌ Неверный формат. Ожидается: {roll} - {upg1} {y/n1} > {upg2} {y/n2}")
         else:
             try:
                 roll = int(parts[0])
-                if not 1 <= roll <= 11: errors.append(f"❌ Roll ({roll}) должен быть в диапазоне 1-11.")
+                if not 1 <= roll <= 11:
+                    errors.append(f"❌ Roll ({roll}) должен быть в диапазоне 1-11.")
             except ValueError:
                 errors.append(f"❌ Roll ({parts[0]}) должен быть числом.")
             try:
                 upg1 = int(parts[2])
-                if not 0 <= upg1 <= max_level: errors.append(f"❌ UPG1 ({upg1}) должен быть в диапазоне 0-{max_level}.")
+                if not 0 <= upg1 <= max_level:
+                    errors.append(f"❌ UPG1 ({upg1}) должен быть в диапазоне 0-{max_level}.")
             except ValueError:
                 errors.append(f"❌ UPG1 ({parts[2]}) должен быть числом.")
-            if parts[3].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted1 ({parts[3]}) должен быть 'y' или 'n'.")
+            if parts[3].lower() not in ('y', 'n'):
+                errors.append(f"❌ Corrupted1 ({parts[3]}) должен быть 'y' или 'n'.")
             try:
                 upg2 = int(parts[5])
-                if not 0 <= upg2 <= max_level: errors.append(f"❌ UPG2 ({upg2}) должен быть в диапазоне 0-{max_level}.")
+                if not 0 <= upg2 <= max_level:
+                    errors.append(f"❌ UPG2 ({upg2}) должен быть в диапазоне 0-{max_level}.")
             except ValueError:
                 errors.append(f"❌ UPG2 ({parts[5]}) должен быть числом.")
-            if parts[6].lower() not in ('y', 'n'): errors.append(f"❌ Corrupted2 ({parts[6]}) должен быть 'y' или 'n'.")
-            if parts[3].lower() == 'y' and parts[6].lower() == 'n': errors.append(
-                "❌ Нельзя декорраптить (y → n запрещено).")
+            if parts[6].lower() not in ('y', 'n'):
+                errors.append(f"❌ Corrupted2 ({parts[6]}) должен быть 'y' или 'n'.")
+            if parts[3].lower() == 'y' and parts[6].lower() == 'n':
+                errors.append("❌ Нельзя декорраптить (y → n запрещено).")
 
-    # ---------- вывод ошибок (анти-спам) ----------
+            if not errors:
+                stage_data = {
+                    'roll': int(parts[0]),
+                    'upg1': int(parts[2]),
+                    'corrupted1': parts[3].lower() == 'y',
+                    'upg2': int(parts[5]),
+                    'corrupted2': parts[6].lower() == 'y'
+                }
+
+    # Обработка ошибок
     if errors:
-        # Вариант 1: Создать переменную заранее (рекомендуется)
         errors_str = '\n'.join(errors)
+
+        # Формируем пример для текущей команды и части
+        example_map = {
+            'fz': '{hp} {upg} {y/n}',
+            'z': '{hp} {upg} {y/n}',
+            'hk': '{hp} {upg} {y/n}',
+            'k': '{hp} {upg} {y/n}',
+            'wfz': '{roll} > {upg} {y/n}',
+            'wz': '{roll} > {upg} {y/n}',
+            'whk': '{roll} > {upg} {y/n}',
+            'wk': '{roll} > {upg} {y/n}',
+            'lfz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
+            'lz': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
+            'lhk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}',
+            'lk': '{roll} - {upg1} {y/n1} > {upg2} {y/n2}'
+        }
+        example = example_map.get(command, '{аргументы}')
+
         error_text = (
             f"🛑 **Обнаружены ошибки формата для `!{command}`:**\n"
             f"{errors_str}\n\n"
             f"**Пример написания:**\n{example}"
         )
+
         chat_id = update.effective_chat.id
         thread_id = update.effective_message.message_thread_id
 
-        # сразу удаляем сообщение игрока
+        # Удаляем сообщение игрока
         try:
             await update.message.delete()
         except Exception:
             pass
 
-        # отправляем своё
+        # Отправляем ошибку
         try:
             msg = await context.bot.send_message(
                 chat_id=chat_id,
@@ -3418,127 +3820,64 @@ async def handle_armor_input(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=error_text,
                 parse_mode=ParseMode.MARKDOWN
             )
-            _err_queue.setdefault(user_id, deque()).append(msg.message_id)
+            # ИСПРАВЛЕНО: используем _error_msgs вместо _err_queue
+            _error_msgs.setdefault(user_id, deque()).append(msg.message_id)
         except Exception:
             return
 
-        # 3-секундный таймер на пачку
+        # 3-секундный таймер на удаление
         async def _del_batch():
             await asyncio.sleep(3)
-            msgs = _err_queue.pop(user_id, deque())
+            # ИСПРАВЛЕНО: используем _error_msgs вместо _err_queue
+            msgs = _error_msgs.pop(user_id, deque())
             for mid in msgs:
                 try:
                     await context.bot.delete_message(chat_id=chat_id, message_id=mid)
                 except Exception:
                     pass
 
-        # запускаем таймер только один раз за «сессию» спама
-        if len(_err_queue[user_id]) == 1:  # первое сообщение – пустили таймер
+        # ИСПРАВЛЕНО: используем _error_msgs вместо _err_queue
+        if len(_error_msgs.get(user_id, deque())) == 1:
             asyncio.create_task(_del_batch())
         return
 
-    # ---------- сохранение данных ----------
-    if command in ('fz', 'z', 'hk', 'k'):
-        stage_data = {'hp': float(parts[0]), 'upg': int(parts[1]), 'corrupted': parts[2].lower() == 'y'}
-    elif command in ('wfz', 'wz', 'whk', 'wk'):
-        stage_data = {'roll': int(parts[0]), 'upg': int(parts[2]), 'corrupted': parts[3].lower() == 'y'}
-    elif command in ('lfz', 'lz', 'lhk', 'lk'):
-        stage_data = {
-            'roll': int(parts[0]),
-            'upg1': int(parts[2]), 'corrupted1': parts[3].lower() == 'y',
-            'upg2': int(parts[5]), 'corrupted2': parts[6].lower() == 'y'
-        }
-    user_data['data'][stage] = stage_data
+    # Сохраняем данные
+    user_data['data'][selected_part] = stage_data
+    user_data['parts_status'][selected_part] = ARMOR_STATUS_SAVED
+
+    # Сбрасываем выбор (чтобы показать общее меню)
+    user_data['selected_part'] = None
+
+    # Удаляем сообщение пользователя
     await update.message.delete()
 
-    # ---------- переход к следующей части ----------
-    next_stage_map = {STAGE_HELMET: STAGE_CHEST, STAGE_CHEST: STAGE_LEGS}
-    next_stage = next_stage_map.get(stage)
-    if next_stage:
-        user_data['stage'] = next_stage
-        prompt = get_armor_prompt_text(command, next_stage, max_level)
-        keyboard = get_armor_stage_keyboard(next_stage, user_data['user_msg_id'])
-        try:
-            await context.bot.edit_message_text(
-                chat_id=update.effective_chat.id,
-                message_id=user_data['bot_msg_id'],
-                text=prompt,
-                parse_mode=ParseMode.HTML,
-                reply_markup=keyboard
-            )
-        except Exception:
-            bot_msg = await update.message.reply_text(prompt, parse_mode=ParseMode.HTML,
-                                                      reply_markup=keyboard)
-            user_data['bot_msg_id'] = bot_msg.message_id
-    else:
-        await generate_armor_results(update, context, user_id)
+    # Обновляем сообщение бота
+    armor_name = ARMOR_COMMAND_NAMES.get(command, 'Броня')
+    text = f"🛡️ <b>Ввод данных для брони — {armor_name}</b>\n\n"
+    text += "Выберите часть брони: <b>Ничего</b>\n\n"
+    text += "Нажмите на часть брони, чтобы ввести для неё данные."
 
+    # Показываем какие части уже заполнены
+    saved_parts = []
+    for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS]:
+        if user_data['parts_status'][part] == ARMOR_STATUS_SAVED:
+            saved_parts.append(ARMOR_PART_NAMES[part])
 
-async def armor_stage_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    if saved_parts:
+        text += f"\n\n<b>Заполнено:</b> {', '.join(saved_parts)}"
 
-    if not is_allowed_thread(update):
-        return
+    keyboard = get_armor_parts_keyboard(command, user_id, None)
 
-    data_parts = query.data.split(":")
-    action = data_parts[0]
-    stage = data_parts[1] if len(data_parts) > 2 else None
-    user_msg_id = int(data_parts[-1])
-
-    user_id = update.effective_user.id
-
-    # 🛑 ПРОВЕРКА ВЛАДЕЛЬЦА: только тот, кто начал сессию
-    if user_id not in user_armor_data or user_armor_data[user_id]['user_msg_id'] != user_msg_id:
-        # Дополнительная проверка через reply_to_message (на всякий случай)
-        if not check_message_ownership(query, strict=False):
-            await query.answer("Это не ваша сессия!", show_alert=True)
-            return
-
-    if action == "armor_skip":
-        if user_id not in user_armor_data:
-            return
-
-        user_data = user_armor_data[user_id]
-        next_stage = None
-
-        # Определяем следующий этап
-        if stage == STAGE_HELMET:
-            next_stage = STAGE_CHEST
-        elif stage == STAGE_CHEST:
-            next_stage = STAGE_LEGS
-
-        if next_stage:
-            user_data['stage'] = next_stage
-            prompt_text = get_armor_prompt_text(user_data['command'], next_stage, user_data['max_level'])
-            keyboard = get_armor_stage_keyboard(next_stage, user_msg_id)
-
-            try:
-                await query.message.edit_text(
-                    text=prompt_text,
-                    parse_mode=ParseMode.HTML,  # <-- Добавить сюда
-                    reply_markup=keyboard
-                )
-            except:
-                pass
-        else:
-            # Последний этап - генерируем результаты
-            await generate_armor_results(update, context, user_id)
-
-    elif action == "armor_cancel":
-        # Отмена - удаляем все сообщения и данные
-        try:
-            await query.message.delete()
-            await context.bot.delete_message(
-                chat_id=query.message.chat_id,
-                message_id=user_msg_id
-            )
-        except:
-            pass
-
-        if user_id in user_armor_data:
-            del user_armor_data[user_id]
-
+    try:
+        await context.bot.edit_message_text(
+            chat_id=user_data['chat_id'],
+            message_id=user_data['bot_msg_id'],
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard
+        )
+    except Exception as e:
+        print(f"Ошибка при обновлении сообщения брони: {e}")
 
 async def armor_results_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3819,97 +4158,113 @@ async def ltl_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         else:
             raise
 
-async def generate_armor_results(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    user_data = user_armor_data[user_id]
-    command = user_data['command']
-    item_key = user_data['item_key']
-    item_info = ITEMS_MAPPING[item_key]
-    armor_data = user_data['data']
-    chat_id = user_data['chat_id']
-    user_msg_id = user_data['user_msg_id']
 
-    # Удаляем сообщение бота с запросом
-    try:
-        await context.bot.delete_message(chat_id=chat_id, message_id=user_data['bot_msg_id'])
-    except:
-        pass
-
-    # Проверка: если ничего не введено
-    if not any(armor_data.values()):
-        insults = [
-            "Ну и, что ты решил делать? Ты нихуя не написал, пиши команду заново!",
-            "Нету данных - нет конфетки, пошёл нахуй! Если тебе не надо ещё раз писать ебаную команду",
-            "Ахахаххаах, ебать. Пиши заново, ебанько) Без данных тебя даже в дурку не примут",
-            "Еблан, ты вкурсе что ты везде прожал 3 раза Пропустить? Пиши заново, блять",
-            "ЧМО ЕБАНОЕ, НАХУЙ ЕБЁШЬ МОЗГИ? ТЫ ВСЁ ПРОСКИПАЛ И РАДИ ЧЕГО? ЗАНОВО!",
-            "Я бы желал вам, месье, дать по еблищу, но мне жаль, что я цифровая моделька. Имейте совесть, не ебите мозг даже мне, и админу. Если вам ненадо вводить, не пишите ебаную команду, сука!",
-            "Это что-то типа: ""ХУЕСОСЫ ЕБАНЫЕ! О, кнопка Пропустить"" Уёбок. Пиши заново"
-        ]
-
-        # Отправляем гневное сообщение и запоминаем его ID
-        insult_msg = await context.bot.send_message(
-            chat_id=chat_id,
-            text=random.choice(insults),
-            reply_to_message_id=user_msg_id
-        )
-        # Удаляем команду пользователя
-        try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=user_msg_id)
-        except:
-            pass
-
-        # Удаляем своё сообщение через 5 секунд
-        async def delete_insult_after_delay():
-            await asyncio.sleep(5)
-            try:
-                await context.bot.delete_message(chat_id=chat_id, message_id=insult_msg.message_id)
-            except:
-                pass
-
-        asyncio.create_task(delete_insult_after_delay())
-
-        del user_armor_data[user_id]
+async def generate_armor_results(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int,
+                                 from_callback: bool = False):
+    """Генерация результатов для брони"""
+    # Проверяем, есть ли данные
+    if user_id not in user_armor_data:
         return
 
-    # Находим первую заполненную часть
-    first_part = None
-    for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS]:
-        if armor_data[part] is not None:
-            first_part = part
-            break
+    user_data = user_armor_data[user_id]
 
-    # Генерируем клавиатуру и текст для первой части
-    # ТЕПЕРЬ ПЕРЕДАЁМ ПОЛНЫЕ armor_data
-    keyboard = generate_armor_results_keyboard(command, armor_data, user_msg_id, current_page="total",
-                                               current_part=first_part)
-    text = generate_armor_part_page(item_info, armor_data, command, first_part)
+    try:
+        command = user_data['command']
+        item_key = user_data['item_key']
+        item_info = ITEMS_MAPPING[item_key]
+        armor_data = user_data['data']
+        chat_id = user_data['chat_id']
+        user_msg_id = user_data['user_msg_id']
+        bot_msg_id = user_data.get('bot_msg_id')
 
-    # Добавляем TOTAL HP, если все 3 части заполнены
-    if all(armor_data.values()):
-        total_hp = 0
+        # Удаляем сообщение бота с интерфейсом
+        if from_callback:
+            try:
+                await update.callback_query.message.delete()
+            except:
+                pass
+        else:
+            if bot_msg_id:
+                try:
+                    await context.bot.delete_message(chat_id=chat_id, message_id=bot_msg_id)
+                except:
+                    pass
+
+        # Находим первую заполненную часть для показа
+        first_part = None
         for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS]:
-            data = armor_data[part]
-            part_key = PART_MAPPING[part]
-            base_stats = item_info['stats'][part_key]
-            if command in ['fz', 'z', 'hk', 'k']:
-                roll = find_roll_for_armor(base_stats, data['hp'], data['upg'], data['corrupted'])
-                base_hp = base_stats[roll]
-                total_hp += data['hp']
-            elif command in ['wfz', 'wz', 'whk', 'wk']:
-                base_hp = base_stats[data['roll']]
-                total_hp += calculate_armor_stat_at_level(base_hp, data['upg'], data['corrupted'], 1.0, "armor")
-        text += f"\n\n<b>TOTAL HP:</b> <i>{int(total_hp):,}</i> ❤️"
+            if armor_data[part] is not None:
+                first_part = part
+                break
 
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=keyboard,
-        reply_to_message_id=user_msg_id
-    )
-    # Очищаем временные данные (НО callback'и уже не зависят от них!)
-    del user_armor_data[user_id]
+        if not first_part:
+            # Нет данных для показа
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ Нет данных для отображения.",
+                reply_to_message_id=user_msg_id
+            )
+            return
 
+        # Генерируем клавиатуру и текст для первой части
+        keyboard = generate_armor_results_keyboard(command, armor_data, user_msg_id, current_page="total",
+                                                   current_part=first_part)
+        text = generate_armor_part_page(item_info, armor_data, command, first_part)
+
+        # Добавляем TOTAL HP, если все 3 части заполнены
+        if all(armor_data.values()):
+            total_hp = 0
+            for part in [STAGE_HELMET, STAGE_CHEST, STAGE_LEGS]:
+                data = armor_data[part]
+                part_key = PART_MAPPING[part]
+                base_stats = item_info['stats'][part_key]
+                if command in ['fz', 'z', 'hk', 'k']:
+                    total_hp += data['hp']
+                elif command in ['wfz', 'wz', 'whk', 'wk']:
+                    base_hp = base_stats[data['roll']]
+                    total_hp += calculate_armor_stat_at_level(base_hp, data['upg'], data['corrupted'], 1.0, "armor")
+                else:  # l-команды
+                    base_hp = base_stats[data['roll']]
+                    total_hp += calculate_armor_stat_at_level(base_hp, data['upg2'], data['corrupted2'], 1.0, "armor")
+
+            text += f"\n\n<b>TOTAL HP:</b> <i>{int(total_hp):,}</i> ❤️"
+
+        # Отправляем результат
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard,
+                reply_to_message_id=user_msg_id
+            )
+        except Exception as e:
+            # Если reply_to_message_id не работает, отправляем без него
+            print(f"Ошибка reply_to_message_id: {e}")
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=text,
+                parse_mode=ParseMode.HTML,
+                reply_markup=keyboard
+            )
+
+    except Exception as e:
+        print(f"Ошибка в generate_armor_results: {e}")
+        import traceback
+        traceback.print_exc()
+        # Сообщаем пользователю об ошибке
+        try:
+            await context.bot.send_message(
+                chat_id=user_data['chat_id'],
+                text=f"❌ Ошибка при генерации результатов: {e}",
+                reply_to_message_id=user_data.get('user_msg_id')
+            )
+        except:
+            pass
+    finally:
+        # ГАРАНТИРОВАННО удаляем сессию в любом случае!
+        if user_id in user_armor_data:
+            del user_armor_data[user_id]
 
 # --- ТАБЛИЦЫ РОЛЛОВ ---
 
@@ -5080,10 +5435,15 @@ def main():
 
     # 4. Callback для этапов ввода брони (Пропустить/Отмена)
     app.add_handler(
-        CallbackQueryHandler(
-            armor_stage_callback,
-            pattern="^(armor_skip|armor_cancel):"
-        ),
+        CallbackQueryHandler(armor_part_callback, pattern="^armor_part:"),
+        group=0
+    )
+    app.add_handler(
+        CallbackQueryHandler(armor_finish_callback, pattern="^armor_finish:"),
+        group=0
+    )
+    app.add_handler(
+        CallbackQueryHandler(armor_cancel_callback, pattern="^armor_cancel:"),
         group=0
     )
 
