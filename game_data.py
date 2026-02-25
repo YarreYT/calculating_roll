@@ -30,11 +30,11 @@ TIMELOST_CONQUERORS_BLADE_STATS = {
 }
 
 TIMELOST_CONQUERORS_BLADE_LE_STATS = {
-    1: 8925.2, 2: 9014.425, 3: 9103.35, 4: 9192.875, 5: 9282.1,
-    6: 9371.325, 7: 9460.55, 8: 9549.775, 9: 9639, 10: 9728.225, 11: 9817.45
+    1: 8925.2, 2: 9014.43, 3: 9103.65, 4: 9192.88, 5: 9282.11,
+    6: 9371.33, 7: 9460.56, 8: 9549.79, 9: 9639.02, 10: 9728.24, 11: 9817.47
 }
 
-TIMELOST_THRESHOLD_PERCENT = 4.7619  # Для определения L.E. версии
+DIFFERENT_PROCENT_CHECK = 4.7619  # Для определения L.E. версии
 
 # --- B. БРОНЯ (ХП) ---
 FZH_STATS = { # Mythic Zeus Set (Furious)
@@ -116,7 +116,6 @@ reforges = [
     {"name": "Murderous", "dmg": "-10%", "crit": "-10%", "knk": "-30%"}
 ]
 
-WOODEN_SWORD_THRESHOLD_PERCENT = 4.7619
 ASC_BASE_UPGRADE_COST = 2957
 WOODEN_SWORD_BASE = 11550
 
@@ -126,16 +125,19 @@ ASC_WEAPON_TYPES = {
     'mb': {"name": "Menta Blade V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
     'lk': {"name": "Lightning Katana V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
     'me': {"name": "Magma's Edge V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
-    'pt': {"name": "Poseidon's Trident V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
-    'dd': {"name": "Dual Daggers V2", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'at': {"name": "Abyssal Trident", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'ad': {"name": "Ascended Daggers", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
+    'av': {"name": "Ascended Voidblade", "stats": CONQUERORS_BLADE_STATS, "fixed_roll": False, "min_roll": 6},
 }
 
 # --- D. СИСТЕМА СОПОСТАВЛЕНИЯ ДАННЫХ И СТОИМОСТИ ---
 ITEMS_MAPPING = {
+    # --- ОБЫЧНОЕ ОРУЖИЕ ---
     "cb": {
         "name": "Conqueror's Blade",
         "stats": CONQUERORS_BLADE_STATS,
         "type": "weapon",
+        "category": "normal",
         "upgrade_cost_lvl1": 2535,
         "max_level": 45
     },
@@ -143,68 +145,109 @@ ITEMS_MAPPING = {
         "name": "Doombringer",
         "stats": DOOMBRINGER_STATS,
         "type": "weapon",
+        "category": "normal",
         "upgrade_cost_lvl1": 2112,
         "max_level": 34
     },
+
+    # --- ASC ОРУЖИЕ ---
     "asc_ws": {
-    "name": "Wooden Sword V2",
-    "stats": {11: WOODEN_SWORD_BASE},
-    "type": "asc_weapon",
-    "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-    "max_level": 45,
-    "weapon_key": "ws"
+        "name": "Wooden Sword V2",
+        "stats": {11: WOODEN_SWORD_BASE},
+        "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "ws",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 44,
     },
     "asc_mb": {
         "name": "Menta Blade V2",
         "stats": CONQUERORS_BLADE_STATS,
         "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "mb",
         "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 45,
-        "weapon_key": "mb"
+        "max_level": 44,
     },
     "asc_lk": {
         "name": "Lightning Katana V2",
         "stats": CONQUERORS_BLADE_STATS,
         "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "lk",
         "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 45,
-        "weapon_key": "lk"
+        "max_level": 44,
     },
     "asc_me": {
         "name": "Magma's Edge V2",
         "stats": CONQUERORS_BLADE_STATS,
         "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "me",
         "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 45,
-        "weapon_key": "me"
+        "max_level": 44,
     },
-    "asc_pt": {
-        "name": "Poseidon's Trident V2",
+    "asc_at": {
+        "name": "Abyssal Trident",
         "stats": CONQUERORS_BLADE_STATS,
         "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "pt",
         "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 45,
-        "weapon_key": "pt"
+        "max_level": 44,
     },
-    "asc_dd": {
-        "name": "Dual Daggers V2",
+    "asc_ad": {
+        "name": "Ascended Daggers",
         "stats": DUAL_DAGGERS_V2_STATS,
         "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "dd",
         "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 45,
-        "weapon_key": "dd"
+        "max_level": 44,
     },
+    "asc_av": {
+        "name": "Ascended Voidblade",
+        "stats": CONQUERORS_BLADE_STATS,
+        "type": "asc_weapon",
+        "category": "asc",
+        "weapon_key": "av",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 44,
+    },
+
+    # --- TIMELOST ОРУЖИЕ ---
+    "tl": {
+        "name": "Timelost Conqueror's Blade",
+        "stats": TIMELOST_CONQUERORS_BLADE_STATS,
+        "type": "weapon",
+        "category": "tl",
+        "upgrade_cost_lvl1": 2535,
+        "max_level": 45
+    },
+    "tl_le": {
+        "name": "Timelost Conqueror's Blade (Limited Edition)",
+        "stats": TIMELOST_CONQUERORS_BLADE_LE_STATS,
+        "type": "asc_weapon",
+        "category": "tl",
+        "weapon_key": "tl_le",
+        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
+        "max_level": 44,
+    },
+
+    # --- БРОНЯ ---
     "fzh": {
-        "name": "Furious Zeus Set (Mythic)",
+        "name": "Furious Zeus Set",
         "stats": FZH_STATS,
         "type": "armor_set",
+        "category": "armor",
         "upgrade_cost_lvl1": 2535,
         "max_level": 45
     },
     "lzs": {
-        "name": "Legendary Zeus Set",
+        "name": "Zeus Set",
         "stats": LZS_STATS,
         "type": "armor_set",
+        "category": "armor",
         "upgrade_cost_lvl1": 2112,
         "max_level": 34
     },
@@ -212,30 +255,17 @@ ITEMS_MAPPING = {
         "name": "Heroic Kronax Set",
         "stats": HKR_STATS,
         "type": "armor_set",
+        "category": "armor",
         "upgrade_cost_lvl1": 2957,
-        "max_level": 45
+        "max_level": 44
     },
     "ks": {
         "name": "Kronax Set",
         "stats": KR_STATS,
         "type": "armor_set",
+        "category": "armor",
         "upgrade_cost_lvl1": 2535,
-        "max_level": 45
-    },
-    "tl": {
-        "name": "Timelost Conqueror's Blade",
-        "stats": TIMELOST_CONQUERORS_BLADE_STATS,
-        "type": "weapon",
-        "upgrade_cost_lvl1": 2535,  # Mythical золото
-        "max_level": 45
-    },
-    "tl_le": {  # Limited Edition - Ascended
-        "name": "Timelost Conqueror's Blade (Limited Edition)",
-        "stats": TIMELOST_CONQUERORS_BLADE_LE_STATS,
-        "type": "asc_weapon",  # Используем asc_weapon для совместимости
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,  # 2917
-        "max_level": 45,
-        "weapon_key": "tl_le"  # Уникальный ключ
+        "max_level": 44
     },
 }
 # Маппинг частей брони
