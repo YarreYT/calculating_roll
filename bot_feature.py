@@ -4132,7 +4132,7 @@ CALLBACK_ARMOR_LEGS = "legs"
 # Функции для генерации текста каждой страницы помощи
 def get_main_page_text():
     return """Создатель бота - H2O (YarreYT)
-Версия бота - 1.0.1v РЕЛИЗ
+Версия бота - 1.0.3v РЕЛИЗ
 
 *Общие правила:*
 (y/n): y - corrupted, n - НЕ corrupted.
@@ -5109,3 +5109,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
