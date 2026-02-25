@@ -4173,7 +4173,7 @@ def get_instruction_page_text():
 
 *Вкратце о аргументах*
 `{roll}` - все редкости: 0-11; у Ascended с крафта - 6-11
-`{upg}` - легендарная редкость: 0-34; у Mythical и Ascended - 0-45
+`{upg}` - легендарная редкость: 0-34; у Mythical 0-45, у Ascended - 0-44
 `{y/n}` - y - corrupted, n - НЕ corrupted
 `{reforge}` - список зачарований: `!reforge`
 
@@ -5109,4 +5109,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
