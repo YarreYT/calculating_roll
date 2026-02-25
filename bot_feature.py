@@ -2696,7 +2696,7 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
 
         if command in ['fz', 'z', 'hk', 'k']:
             # Анализ - Process и Tablet
-            proc_text = f"{'✓ ' if is_current and current_page == 'process' else ''}< Process>"
+            proc_text = f"{'✓ ' if is_current and current_page == 'process' else ''}< Process"
             tab_text = f"{'✓ ' if is_current and current_page == 'tablet' else ''}< Tablet"
 
             cb_proc = f"a:{command}:{part}:p:{user_msg_id}:{packed_data}"
@@ -5109,5 +5109,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
