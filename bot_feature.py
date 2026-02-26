@@ -837,7 +837,9 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
             return InlineKeyboardMarkup(keyboard)
 
         elif is_ad:
-            base = f"{prefix}:ad:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:0:{user_msg_id}"
+            ad_roll = roll if roll else 6  # AD имеет роллы 6-11
+
+            base = f"{prefix}:ad:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{ad_roll}:0:{user_msg_id}"
             total_txt = "✓ Total" if current_page == "total" else "Total"
             proc_txt = "✓ Process" if current_page == "process" else "Process"
             tabl_txt = "✓ Tablet" if current_page == "tablet" else "Tablet"
@@ -1198,11 +1200,15 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
         real_item_key = weapon_info["item_key"]
         item_info = ITEMS_MAPPING[real_item_key]
 
+        # 🔧 ИСПРАВЛЕНИЕ: Определяем флаги правильно
+        is_ws = weapon_info.get("is_ws", False)
+        is_ad = weapon_info.get("is_ad", False)
+
         active_weapon = None
         if weapon_info["weapon_category"] == "asc":
-            if weapon_info["is_ws"]:
+            if is_ws:
                 active_weapon = "ws"
-            elif weapon_info["is_ad"]:
+            elif is_ad:
                 active_weapon = "ad"
             else:
                 active_weapon = real_item_key.replace("asc_", "") if real_item_key.startswith("asc_") else "mb"
@@ -1215,6 +1221,7 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
             weapon_info["weapon_category"]
         )
 
+        # 🔧 ИСПРАВЛЕНИЕ: Передаём is_ws и is_ad явно
         keyboard = generate_weapon_analysis_keyboard(
             item_key=real_item_key,
             current_page="total",
@@ -1225,8 +1232,8 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
             user_msg_id=update.message.message_id,
             weapon_category=weapon_info["weapon_category"],
             roll=weapon_info["roll"],
-            is_ws=weapon_info["is_ws"],
-            is_ad=weapon_info["is_ad"],
+            is_ws=is_ws,  # 🔧 Явно передаём
+            is_ad=is_ad,  # 🔧 Явно передаём
             active_weapon=active_weapon
         )
 
@@ -1238,7 +1245,6 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
         )
     except Exception as e:
         await update.message.reply_text(f"Непредвиденная ошибка при расчете: {e}")
-
 
 async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, item_key: str):
     """Универсальная функция прогноза оружия (!wconq, !wdoom, !wasc, !wtl)"""
@@ -1655,13 +1661,11 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
     await query.answer()
 
     # ==================== БЛОК 2: ОБРАБОТКА ЗАКРЫТИЯ ====================
-    # Проверяем, содержит ли callback "close" в любом месте
     if "close" in query.data:
         try:
-            # Извлекаем user_msg_id из конца callback_data
             parts = query.data.split(":")
             if len(parts) >= 2:
-                user_msg_id = int(parts[-1])  # Берем последнее значение как ID
+                user_msg_id = int(parts[-1])
                 await query.message.delete()
                 await context.bot.delete_message(
                     chat_id=query.message.chat.id,
@@ -1678,30 +1682,42 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         await query.answer("Ошибка формата", show_alert=True)
         return
 
-    prefix = data_parts[0]  # normal, tl, asc, wnormal, wtl, wasc, lnormal, ltl, lasc
-    item_key = data_parts[1]  # cb, db, asc_mb, tl, tl_le и т.д.
-    page = data_parts[2]  # total, process, tablet, tl_total, actual_process и т.д.
+    prefix = data_parts[0]
+    raw_item_key = data_parts[1]  # cb, db, ws, ad, asc_mb, tl, tl_le и т.д.
+    page = data_parts[2]
 
     # ==================== БЛОК 4: ОПРЕДЕЛЕНИЕ ТИПА КОМАНДЫ ====================
     category = "normal"
-    command_type = "analyze"  # analyze, forecast, compare
+    command_type = "analyze"
 
     if prefix.startswith("w"):
         command_type = "forecast"
-        category = prefix[1:]  # wnormal -> normal, wtl -> tl, wasc -> asc
+        category = prefix[1:]
     elif prefix.startswith("l"):
         command_type = "compare"
-        category = prefix[1:]  # lnormal -> normal, ltl -> tl, lasc -> asc
+        category = prefix[1:]
     else:
-        category = prefix  # normal, tl, asc
+        category = prefix
 
-    # Добавляем префикс asc_ для ASC оружия если его нет
-    if category == "asc" and not item_key.startswith("asc_"):
-        item_key = f"asc_{item_key}"
+    # 🔧 ИСПРАВЛЕНИЕ: Определяем специальные типы ДО маппинга
+    is_ws = (raw_item_key == "ws")
+    is_ad = (raw_item_key == "ad")
+
+    # 🔧 ИСПРАВЛЕНИЕ: Мапим raw_item_key в реальный item_key для ITEMS_MAPPING
+    if category == "asc":
+        if is_ws:
+            item_key = "asc_ws"
+        elif is_ad:
+            item_key = "asc_ad"
+        elif raw_item_key.startswith("asc_"):
+            item_key = raw_item_key
+        else:
+            item_key = f"asc_{raw_item_key}"
+    else:
+        item_key = raw_item_key
 
     # ==================== БЛОК 5: ОБРАБОТКА ANALYZE ====================
     if command_type == "analyze":
-        # Формат: {cat}:{item}:page:dmg:upg:corr:reforge:roll:is_le:user_msg_id
         if len(data_parts) < 9:
             await query.answer("Ошибка: неверный формат данных", show_alert=True)
             return
@@ -1715,22 +1731,29 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         user_msg_id = int(data_parts[9]) if len(data_parts) > 9 else int(data_parts[-1])
 
         reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
+
+        # Теперь item_key правильный (asc_ad, а не ad)
         item_info = ITEMS_MAPPING[item_key]
 
-        # Определяем параметры для UI
-        is_ws = category == "asc" and item_info.get("weapon_key") == "ws"
-        is_ad = category == "asc" and item_info.get("weapon_key") == "ad"
+        # Определяем active_weapon для UI
         active_weapon = None
-        if category == "asc" and not is_ws and not is_ad:
-            active_weapon = item_key.replace("asc_", "")
+        if category == "asc":
+            if is_ws:
+                active_weapon = "ws"
+            elif is_ad:
+                active_weapon = "ad"
+            else:
+                active_weapon = item_key.replace("asc_", "") if item_key.startswith("asc_") else "mb"
 
         # Определяем base_dmg
         if is_ws:
             base_dmg = WOODEN_SWORD_BASE
+        elif is_ad:
+            base_dmg = DUAL_DAGGERS_V2_STATS.get(roll, DUAL_DAGGERS_V2_STATS[6])
         else:
             base_dmg = item_info['stats'][roll]
 
-        # Генерируем текст в зависимости от страницы
+        # Генерируем текст...
         if page == "total":
             text = generate_total_page(item_info, dmg, upg, corr, reforge_name, reforge_mult,
                                        roll, base_dmg, category)
@@ -1746,10 +1769,19 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             await query.answer("Неизвестная страница", show_alert=True)
             return
 
-        # Генерируем клавиатуру
         keyboard = generate_weapon_analysis_keyboard(
-            item_key, page, dmg, upg, corr, reforge_name, user_msg_id,
-            category, roll, is_ws, is_ad, active_weapon
+            item_key=raw_item_key,  # Используем короткий ключ для callback
+            current_page=page,
+            dmg=dmg,
+            upg=upg,
+            corr=corr,
+            reforge_name=reforge_name,
+            user_msg_id=user_msg_id,
+            weapon_category=category,
+            roll=roll,
+            is_ws=is_ws,
+            is_ad=is_ad,
+            active_weapon=active_weapon
         )
 
     # ==================== БЛОК 6: ОБРАБОТКА FORECAST ====================
@@ -5109,6 +5141,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
