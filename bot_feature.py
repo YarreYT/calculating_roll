@@ -31,7 +31,9 @@ from game_data import (
     TIMELOST_CONQUERORS_BLADE_STATS,
     TIMELOST_CONQUERORS_BLADE_LE_STATS,
     HKR_STATS,
-    KR_STATS
+    KR_STATS,
+    CUPIDS_FURY_STATS,
+    UPGRADE_COSTS
 )
 
 from collections import deque
@@ -114,19 +116,19 @@ def is_allowed_thread(update) -> bool:
     return is_topic_allowed(group_id, topic_id)
 
 
-def calculate_gold(base_cost: int, upg_level: int) -> int:
+def calculate_gold(upg_level: int) -> int:
+    """
+    Новая система: фиксированные стоимости из UPGRADE_COSTS.
+    Считает общее количество золота от уровня 1 до upg_level.
+    """
     if upg_level <= 0:
         return 0
 
-    total_spent = 0
-    current_cost = float(base_cost)
+    total = 0
+    for level in range(1, upg_level + 1):
+        total += UPGRADE_COSTS.get(level, 0)
 
-    for lvl in range(1, upg_level + 1):
-        rounded_cost = round(current_cost)
-        total_spent += rounded_cost
-        current_cost = rounded_cost * 1.3
-
-    return total_spent
+    return total
 
 
 def calculate_weapon_stat_at_level(base_value: float, target_level: int, is_corrupted: bool,
@@ -296,23 +298,60 @@ def find_timelost_type(inferred_base: float) -> tuple:
         # Это обычный Timelost
         return "tl", best_roll_tl, tl_base, False
 
+
+def find_cupid_type(inferred_base: float) -> tuple:
+    """
+    Определяет тип Cupid оружия (Fury или Wrath).
+    Returns: (item_key, roll, base_dmg, is_wrath)
+    """
+    # Ищем ближайший ролл в Cupid's Fury (Mythic)
+    best_roll_fury = 1
+    best_diff_fury = float('inf')
+
+    for roll in range(1, 12):
+        diff = abs(CUPIDS_FURY_STATS[roll] - inferred_base)
+        if diff < best_diff_fury:
+            best_diff_fury = diff
+            best_roll_fury = roll
+
+    # Ищем ближайший ролл в Cupid's Wrath (Secret)
+    best_roll_wrath = 1
+    best_diff_wrath = float('inf')
+
+    for roll in range(1, 12):
+        diff = abs([roll] - inferred_base)
+        if diff < best_diff_wrath:
+            best_diff_wrath = diff
+            best_roll_wrath = roll
+
+    # Получаем базовые значения
+    fury_base = CUPIDS_FURY_STATS[best_roll_fury]
+    wrath_base = DOOMBRINGER_STATS[best_roll_wrath]
+
+    # Cupid's Wrath имеет более высокий базовый урон
+    # Если inferred_base близок к Wrath и выше Fury - это Wrath
+    if best_diff_wrath <= best_diff_fury and inferred_base >= (fury_base + wrath_base) / 2:
+        return "cup_sw", best_roll_wrath, wrath_base, True
+    else:
+        return "cup", best_roll_fury, fury_base, False
+
+
 def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: bool, reforge_mult: float) -> dict:
     """
     Определяет реальный тип оружия и параметры.
-    Для TL: автоопределяет обычный или L.E.
-    Для ASC: автоопределяет конкретный меч (ws/ad/regular)
-    Для обычных: возвращает как есть
+    Для Cupid: проверяем и уровень, и урон для точного определения
     """
     result = {
         "item_key": item_key,
-        "display_key": item_key,  # для callback'ов
+        "display_key": item_key,
         "roll": None,
         "base_dmg": None,
         "is_le": False,
         "is_ws": False,
         "is_ad": False,
-        "active_weapon": None,  # для ASC клавиатур
-        "weapon_category": "normal"  # normal/tl/asc
+        "is_wrath": False,
+        "active_weapon": None,
+        "weapon_category": "normal"
     }
 
     item_info = ITEMS_MAPPING.get(item_key)
@@ -323,7 +362,7 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
     result["weapon_category"] = category
 
     if category == "tl":
-        # Timelost - определяем обычный или L.E.
+        # Timelost - без изменений
         inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
         detected_key, roll, base_dmg, is_le = find_timelost_type(inferred_base)
         result["item_key"] = detected_key
@@ -333,7 +372,7 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
         result["is_le"] = is_le
 
     elif category == "asc":
-        # ASC - определяем конкретный меч
+        # ASC - без изменений
         base_dmg, roll, weapon_type = find_base_damage_for_asc(damage, level, corrupted, reforge_mult)
         result["roll"] = roll
         result["base_dmg"] = base_dmg
@@ -349,14 +388,109 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
             result["item_key"] = "asc_ad"
             result["display_key"] = "asc_ad"
         else:
-            # Обычные 4 меча - выбираем случайный для отображения
             chosen = random.choice(["mb", "lk", "me", "at"])
             result["active_weapon"] = chosen
-            result["item_key"] = f"asc_{chosen}"  # <-- должен быть с префиксом
+            result["item_key"] = f"asc_{chosen}"
             result["display_key"] = result["item_key"]
 
+    elif category == "cup":
+        # Cupid - УМНОЕ определение Fury vs Wrath
+        inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
+
+        # Ищем ближайший ролл в Fury
+        best_roll_fury = 1
+        best_diff_fury = float('inf')
+        for roll in range(1, 12):
+            diff = abs(CUPIDS_FURY_STATS[roll] - inferred_base)
+            if diff < best_diff_fury:
+                best_diff_fury = diff
+                best_roll_fury = roll
+
+        # Ищем ближайший ролл в Wrath
+        best_roll_wrath = 1
+        best_diff_wrath = float('inf')
+        for roll in range(1, 12):
+            diff = abs(DOOMBRINGER_STATS[roll] - inferred_base)
+            if diff < best_diff_wrath:
+                best_diff_wrath = diff
+                best_roll_wrath = roll
+
+        # Порог определения (4.7619% как у других оружий)
+        threshold_percent = DIFFERENT_PROCENT_CHECK
+
+        fury_base = CUPIDS_FURY_STATS[best_roll_fury]
+        wrath_base = DOOMBRINGER_STATS[best_roll_wrath]
+
+        # Проверяем, какому типу ближе урон
+        if inferred_base > 0:
+            percent_diff_fury = abs(inferred_base - fury_base) / fury_base * 100
+            percent_diff_wrath = abs(inferred_base - wrath_base) / wrath_base * 100
+        else:
+            percent_diff_fury = float('inf')
+            percent_diff_wrath = float('inf')
+
+        # 🔧 КОМБИНИРОВАННАЯ ЛОГИКА:
+        # 1. Если урон явно ближе к Fury (в пределах порога) - это Fury
+        # 2. Если урон явно ближе к Wrath (в пределах порога) - это Wrath
+        # 3. Если урон посередине - используем уровень как подсказку
+
+        is_fury_by_damage = percent_diff_fury <= threshold_percent
+        is_wrath_by_damage = percent_diff_wrath <= threshold_percent
+
+        if is_fury_by_damage and not is_wrath_by_damage:
+            # Однозначно Fury по урону
+            is_wrath = False
+            best_roll = best_roll_fury
+            base_dmg = fury_base
+        elif is_wrath_by_damage and not is_fury_by_damage:
+            # Однозначно Wrath по урону
+            is_wrath = True
+            best_roll = best_roll_wrath
+            base_dmg = wrath_base
+        elif is_fury_by_damage and is_wrath_by_damage:
+            # Оба подходят (маловероятно, но возможно на границе)
+            # Выбираем тот, что ближе по проценту
+            if percent_diff_fury <= percent_diff_wrath:
+                is_wrath = False
+                best_roll = best_roll_fury
+                base_dmg = fury_base
+            else:
+                is_wrath = True
+                best_roll = best_roll_wrath
+                base_dmg = wrath_base
+        else:
+            # Урон не соответствует ни одному точно
+            # Используем уровень как подсказку + ближайший по урону
+            if level >= 75:
+                # Высокий уровень намекает на Wrath, но проверим на всякий случай
+                # Если Fury ОЧЕНЬ близко, а Wrath далеко - возможно ошибка ввода
+                if percent_diff_fury < percent_diff_wrath * 0.5:  # Fury значительно ближе
+                    is_wrath = False
+                    best_roll = best_roll_fury
+                    base_dmg = fury_base
+                else:
+                    is_wrath = True
+                    best_roll = best_roll_wrath
+                    base_dmg = wrath_base
+            else:
+                # Низкий уровень - выбираем по ближайшему урону
+                if percent_diff_fury <= percent_diff_wrath:
+                    is_wrath = False
+                    best_roll = best_roll_fury
+                    base_dmg = fury_base
+                else:
+                    is_wrath = True
+                    best_roll = best_roll_wrath
+                    base_dmg = wrath_base
+
+        result["item_key"] = "cup_sw" if is_wrath else "cup"
+        result["display_key"] = result["item_key"]
+        result["roll"] = best_roll
+        result["base_dmg"] = base_dmg
+        result["is_wrath"] = is_wrath
+
     else:
-        # Обычное оружие - стандартное определение ролла
+        # Обычное оружие
         base_stats = item_info['stats']
         inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
         roll = determine_roll(base_stats, inferred_base)
@@ -442,10 +576,9 @@ def generate_total_page(item_info, dmg, upg, corr, reforge_name, reforge_mult, r
                         weapon_category="normal"):
     """Универсальная Total страница для всех типов оружия"""
     max_lvl = item_info['max_level']
-    b1 = item_info['upgrade_cost_lvl1']
 
-    spent = calculate_gold(b1, upg)
-    total_needed = calculate_gold(b1, max_lvl)
+    spent = calculate_gold(upg)
+    total_needed = calculate_gold(max_lvl)
     remaining = max(0, total_needed - spent)
 
     # Форматирование roll/base в зависимости от типа
@@ -539,10 +672,12 @@ def generate_process_page(item_info, dmg, upg, corr, reforge_name, reforge_mult,
 
     return "\n".join(steps)
 
+
 def generate_tablet_page(item_info, roll, corr, reforge_mult, reforge_name, weapon_category="normal"):
     """Универсальная Tablet страница"""
+    from game_data import UPGRADE_COSTS  # Импорт таблицы стоимостей
+
     max_lvl = item_info['max_level']
-    b1 = item_info['upgrade_cost_lvl1']
 
     # Определяем базовый урон и ролл для отображения
     is_ws = weapon_category == "asc" and item_info.get("weapon_key") == "ws"
@@ -556,12 +691,10 @@ def generate_tablet_page(item_info, roll, corr, reforge_mult, reforge_name, weap
     header = f"{'UPG':<5} | {'Gold Cost':<11} | {'DMG':<12}"
     separator = "-" * len(header)
     rows = [header, separator]
-    prev_gold = 0
 
     for level in range(0, max_lvl + 1):
-        total_gold = calculate_gold(b1, level)
-        level_cost = total_gold - prev_gold if level > 0 else 0
-        prev_gold = total_gold
+        # Стоимость текущего уровня (0 для уровня 0, т.к нет апгрейда)
+        level_cost = UPGRADE_COSTS.get(level, 0) if level > 0 else 0
 
         dmg = calculate_weapon_stat_at_level(base_dmg, level, corr, reforge_mult)
         rows.append(f"{level:<5} | {level_cost:<11,} | {int(dmg):<12,}")
@@ -573,10 +706,15 @@ def generate_tablet_page(item_info, roll, corr, reforge_mult, reforge_name, weap
     block_name = f"{clean_name}_TABLET"
     return f"```{block_name}\n{title_line}\n\n{table_content}\n```"
 
-def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, reforge_mult, weapon_category="normal"):
+
+def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, reforge_mult,
+                                 weapon_category="normal", display_upg=None):
     """Универсальная Forecast Total страница"""
     max_lvl = item_info['max_level']
-    b1 = item_info['upgrade_cost_lvl1']
+
+    # 🔥 Если передан display_upg (уровень который ввёл юзер), используем его для отображения
+    # А upg используем для реальных расчётов (уже ограниченный)
+    show_upg = display_upg if display_upg is not None else upg
 
     # Определяем базовый урон
     is_ws = weapon_category == "asc" and item_info.get("weapon_key") == "ws"
@@ -587,11 +725,18 @@ def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, refor
         base_dmg = item_info['stats'][roll]
         display_roll = roll
 
+    # 🔥 Расчёты по ОГРАНИЧЕННОМУ уровню (upg)
     target_dmg = calculate_weapon_stat_at_level(base_dmg, upg, corr, reforge_mult)
-    gold_needed = calculate_gold(b1, upg)
+    gold_needed = calculate_gold(upg)
 
     base_text = f"{base_dmg:,.2f}" if isinstance(base_dmg, float) and base_dmg != int(
         base_dmg) else f"{int(base_dmg):,}"
+
+    # 🔥 Показываем реальный расчётный уровень, и если он отличается от введённого - показываем введённый
+    if show_upg != upg:
+        level_display = f"{upg}/{max_lvl} <i>(введено {show_upg}, но игнорируется из-за лимита улучшений данного типа оружия)</i>"
+    else:
+        level_display = f"{upg}/{max_lvl}"
 
     return (
         f"📊 <b>Прогноз {item_info['name']}</b>\n\n"
@@ -599,7 +744,7 @@ def generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, refor
         f"<b>DMG:</b> <i>{(target_dmg):,.0f}</i> ⚔️\n\n"
         f"<b>Reforge:</b> <i>{reforge_name}</i> (x{reforge_mult:.2f})\n"
         f"<b>Corrupted:</b> <i>{'Да' if corr else 'Нет'}</i>\n"
-        f"<b>Upgrade:</b> <i>{upg}/{max_lvl}</i>\n\n"
+        f"<b>Upgrade:</b> <i>{level_display}</i>\n\n"
         f"<b>💰 ЗОЛОТО 💰</b>\n"
         f"<i>       Нужно:</i> <b>{gold_needed:,}</b> до {upg} уровня💰"
     )
@@ -653,7 +798,8 @@ def generate_forecast_process_page(item_info, roll, upg, corr, reforge_name, ref
 
 def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
                                 des_upg, des_corr, des_ref_mult, des_ref_name, weapon_category="normal",
-                                has_two_rolls=False, roll2=None):
+                                has_two_rolls=False, roll2=None,
+                                display_curr_upg=None, display_des_upg=None):  # <-- новые параметры
     """Универсальная Compare Total страница"""
     is_ws = weapon_category == "asc" and item_info.get("weapon_key") == "ws"
 
@@ -664,41 +810,32 @@ def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_m
         base_dmg = item_info['stats'][roll]
         display_roll = roll
 
-    # Если два ролла, используем base_dmg2 для второго
     if has_two_rolls and roll2:
         base_dmg2 = item_info['stats'][roll2] if not is_ws else WOODEN_SWORD_BASE
     else:
         base_dmg2 = base_dmg
 
+    # 🔥 Расчёты по ОГРАНИЧЕННЫМ уровням (curr_upg, des_upg)
     curr_dmg = calculate_weapon_stat_at_level(base_dmg, curr_upg, curr_corr, curr_ref_mult)
-    curr_spent = calculate_gold(item_info['upgrade_cost_lvl1'], curr_upg)
-
     des_dmg = calculate_weapon_stat_at_level(base_dmg2, des_upg, des_corr, des_ref_mult)
-    des_gold = calculate_gold(item_info['upgrade_cost_lvl1'], des_upg)
 
-    # Дополнительное золото только для одного ролла
+    curr_spent = calculate_gold(curr_upg)
+    des_gold = calculate_gold(des_upg)
+
     add_gold = 0
     if not has_two_rolls:
         add_gold = max(0, des_gold - curr_spent)
 
-    # Для двух роллов - считаем отдельно для каждого
     if has_two_rolls:
-        # Ролл 1: текущее состояние
-        spent_roll1 = curr_spent  # уже посчитано выше
-        remaining_roll1 = max(0, calculate_gold(item_info['upgrade_cost_lvl1'], item_info['max_level']) - spent_roll1)
-
-        # Ролл 2: желаемое состояние
-        spent_roll2 = des_gold  # уже посчитано выше как des_gold
-        remaining_roll2 = max(0, calculate_gold(item_info['upgrade_cost_lvl1'], item_info['max_level']) - spent_roll2)
-
-        if is_ws:
-            add_gold_ws = max(0, des_gold - curr_spent)
+        spent_roll1 = curr_spent
+        remaining_roll1 = max(0, calculate_gold(item_info['max_level']) - spent_roll1)
+        spent_roll2 = des_gold
+        remaining_roll2 = max(0, calculate_gold(item_info['max_level']) - spent_roll2)
 
     upg_diff = des_upg - curr_upg
     dmg_diff = des_dmg - curr_dmg
     ref_mult_diff = des_ref_mult - curr_ref_mult
 
-    # Текст для corrupted
     corr_diff_text = ""
     if not curr_corr and des_corr:
         corr_diff_text = " (активируется)"
@@ -708,35 +845,48 @@ def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_m
     dmg_sign = "+" if dmg_diff >= 0 else ""
     pct_sign = "+" if dmg_diff >= 0 else ""
 
+    # 🔥 Для отображения используем оригинальные значения если переданы
+    show_curr_upg = display_curr_upg if display_curr_upg is not None else curr_upg
+    show_des_upg = display_des_upg if display_des_upg is not None else des_upg
+
+    max_lvl = item_info['max_level']
+
+    # Форматирование уровней с указанием введённых значений если они отличаются
+    if show_curr_upg != curr_upg:
+        curr_level_str = f"{curr_upg}/{max_lvl} <i>(введено {show_curr_upg})</i>"
+    else:
+        curr_level_str = f"{curr_upg}/{max_lvl}"
+
+    if show_des_upg != des_upg:
+        des_level_str = f"{des_upg}/{max_lvl} <i>(введено {show_des_upg})</i>"
+    else:
+        des_level_str = f"{des_upg}/{max_lvl}"
+
     base_text = f"{base_dmg:,.2f}" if isinstance(base_dmg, float) and base_dmg != int(
         base_dmg) else f"{int(base_dmg):,}"
 
-    # Заголовок в зависимости от режима
     if has_two_rolls:
         title = f"📊 <b>Сравнение {item_info['name']}</b>"
         if not is_ws:
             roll_text = f"{roll}/11 → {roll2}/11 | "
         else:
-            roll_text = f"11/11 → Что ты там сравнивать собрался? А??\n"
+            roll_text = f"11/11 → Что ты там сравнивать собрался? А??\n\n"
         diff_base_dmg = base_dmg2 - base_dmg
         base_text = f"{base_dmg} → {base_dmg2} (+{diff_base_dmg:,.2f})"
     else:
         title = f"📊 <b>Сравнение {item_info['name']}</b>"
         roll_text = f"{display_roll}/11 | "
 
-    max_lvl = item_info['max_level']
-
     result = (
         f"{title}\n\n"
         f"<b>ROLL:</b> <i>{roll_text}</i><b>BASE:</b> <i>{base_text}</i>\n\n"
         f"<b>DMG:</b> <i>{int(curr_dmg):,}</i> ➜ <i>{int(des_dmg):,} ({dmg_sign}{(dmg_diff):,.2f}) ({pct_sign}{dmg_diff / curr_dmg * 100:.1f}%)</i>\n\n"
-        f"<b>UPG:</b> <i>{curr_upg}/{max_lvl}</i> ➜ <i>{des_upg}/{max_lvl} (+{upg_diff})</i>\n"
+        f"<b>UPG:</b> <i>{curr_level_str}</i> ➜ <i>{des_level_str} (+{upg_diff})</i>\n"
         f"<b>Reforge:</b> <i>{curr_ref_name}</i> (x{curr_ref_mult:.2f}) ➜ <i>{des_ref_name}</i> (x{des_ref_mult:.2f}) {f'(+{ref_mult_diff:.2f})' if ref_mult_diff != 0 else ''}\n"
         f"<b>Corrupted:</b> <i>{'Да' if curr_corr else 'Нет'}</i> ➜ "
         f"<i>{'Да' if des_corr else 'Нет'}{corr_diff_text}</i>\n\n"
     )
 
-    # Дополнительное золото только для одного ролла
     if not has_two_rolls:
         result += (
             f"<b>💰 ЗОЛОТО 💰</b>\n"
@@ -746,18 +896,18 @@ def generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_m
     else:
         if not is_ws:
             result += (
-            f"<b>💰 ЗОЛОТО ДЛЯ {roll} РОЛЛА:</b> 💰\n"
-            f"<i>       Потрачено:</i> <b>{spent_roll1:,}</b>\n"
-            f"<i>       Осталось:</i> <b>{remaining_roll1:,}</b> до {max_lvl} уровня\n\n"
-            f"<b>💰 ЗОЛОТО ДЛЯ {roll2} РОЛЛА:</b> 💰\n"
-            f"<i>       Потрачено:</i> <b>{spent_roll2:,}</b>\n"
-            f"<i>       Осталось:</i> <b>{remaining_roll2:,}</b> до {max_lvl} уровня\n\n"
+                f"<b>💰 ЗОЛОТО ДЛЯ {roll} РОЛЛА:</b> 💰\n"
+                f"<i>       Потрачено:</i> <b>{spent_roll1:,}</b>\n"
+                f"<i>       Осталось:</i> <b>{remaining_roll1:,}</b> до {max_lvl} уровня\n\n"
+                f"<b>💰 ЗОЛОТО ДЛЯ {roll2} РОЛЛА:</b> 💰\n"
+                f"<i>       Потрачено:</i> <b>{spent_roll2:,}</b>\n"
+                f"<i>       Осталось:</i> <b>{remaining_roll2:,}</b> до {max_lvl} уровня\n\n"
             )
         else:
             result += (
-            f"<b>💰 ЗОЛОТО:</b> 💰\n"
-            f"<i>       Потрачено:</i> <b>{curr_spent:,}</b>\n"
-            f"<i>       Осталось:</i> <b>{add_gold_ws:,}</b> до {des_upg} уровня"
+                f"<b>💰 ЗОЛОТО:</b> 💰\n"
+                f"<i>       Потрачено:</i> <b>{curr_spent:,}</b>\n"
+                f"<i>       Осталось:</i> <b>{add_gold:,}</b> до {des_upg} уровня"
             )
 
     return result
@@ -812,16 +962,17 @@ def generate_compare_process_page(item_info, roll, upg, corr, reforge_mult, refo
 
 def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, reforge_name,
                                       user_msg_id, weapon_category="normal", roll=None,
-                                      is_ws=False, is_ad=False, active_weapon=None):
+                                      is_ws=False, is_ad=False, active_weapon=None,
+                                      is_wrath=False):  # 🔧 Новый параметр
     """Универсальная клавиатура для анализа оружия"""
     corr_str = 'y' if corr else 'n'
     ref_str = reforge_name if reforge_name != "None" else "None"
 
     # Определяем префикс callback'а
-    prefix = weapon_category  # normal/tl/asc
+    prefix = weapon_category
 
     if weapon_category == "asc":
-        # ASC клавиатура - особая логика
+        # ASC клавиатура - без изменений
         if is_ws:
             base = f"{prefix}:ws:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:11:0:{user_msg_id}"
             total_txt = "✓ Total" if current_page == "total" else "Total"
@@ -837,7 +988,7 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
             return InlineKeyboardMarkup(keyboard)
 
         elif is_ad:
-            ad_roll = roll if roll else 6  # AD имеет роллы 6-11
+            ad_roll = roll if roll else 6
 
             base = f"{prefix}:ad:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{ad_roll}:0:{user_msg_id}"
             total_txt = "✓ Total" if current_page == "total" else "Total"
@@ -853,7 +1004,6 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
             return InlineKeyboardMarkup(keyboard)
 
         else:
-            # Обычные 5 меча ASC - используем правильные ключи с префиксом asc_
             buttons = []
             for w_key in ['mb', 'lk', 'me', 'at', 'av']:
                 short = ASC_WEAPON_SHORT_NAMES[w_key]
@@ -867,7 +1017,6 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
                     callback_data=base.format("process"))
                 buttons.append([total_btn, proc_btn])
 
-            # Tablet кнопка - тоже с правильным ключом
             tab_base = f"{prefix}:mb:tablet:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:0:{user_msg_id}"
 
             tab_btn = InlineKeyboardButton(
@@ -878,7 +1027,7 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
             return InlineKeyboardMarkup(buttons)
 
     elif weapon_category == "tl":
-        # TL клавиатура - одна панель как у обычных
+        # TL клавиатура - без изменений
         is_le = 1 if "tl_le" in item_key else 0
         base = f"{prefix}:{item_key}:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:{is_le}:{user_msg_id}"
 
@@ -896,8 +1045,38 @@ def generate_weapon_analysis_keyboard(item_key, current_page, dmg, upg, corr, re
         ]
         return InlineKeyboardMarkup(keyboard)
 
+    elif weapon_category == "cup":
+        # 🔧 ИСПРАВЛЕНИЕ: Только одна панель в зависимости от определённого типа
+        if is_wrath:
+            # Только Wrath
+            base = f"{prefix}:cup_sw:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:1:{user_msg_id}"
+            total_txt = "✓ Total" if current_page == "total" else "Total"
+            proc_txt = "✓ Process" if current_page == "process" else "Process"
+            tabl_txt = "✓ Tablet" if current_page == "tablet" else "Tablet"
+
+            keyboard = [
+                [InlineKeyboardButton(total_txt, callback_data=base.format("total")),
+                 InlineKeyboardButton(proc_txt, callback_data=base.format("process")),
+                 InlineKeyboardButton(tabl_txt, callback_data=base.format("tablet"))],
+                [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+            ]
+        else:
+            # Только Fury
+            base = f"{prefix}:cup:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:0:{user_msg_id}"
+            total_txt = "✓ Total" if current_page == "total" else "Total"
+            proc_txt = "✓ Process" if current_page == "process" else "Process"
+            tabl_txt = "✓ Tablet" if current_page == "tablet" else "Tablet"
+
+            keyboard = [
+                [InlineKeyboardButton(total_txt, callback_data=base.format("total")),
+                 InlineKeyboardButton(proc_txt, callback_data=base.format("process")),
+                 InlineKeyboardButton(tabl_txt, callback_data=base.format("tablet"))],
+                [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+            ]
+        return InlineKeyboardMarkup(keyboard)
+
     else:
-        # Обычное оружие (normal)
+        # Обычное оружие
         base = f"{prefix}:{item_key}:{{}}:{int(dmg)}:{upg}:{corr_str}:{ref_str}:{roll}:0:{user_msg_id}"
 
         total_text = "✓ Total" if current_page == "total" else "Total"
@@ -944,26 +1123,52 @@ def generate_weapon_forecast_keyboard(item_key, current_page, roll, upg, corr, r
 
         buttons.append([InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")])
         return InlineKeyboardMarkup(buttons)
+
     elif weapon_category == "tl":
-        # TL прогноз - две панели (TL и LE)
+        # TL прогноз - две панели (TL и LE) с галочками
         dummy_dmg = 0
 
         base_tl = f"w{prefix}:tl:{{}}:{dummy_dmg}:{roll}:{upg}:{corr_str}:{ref_str}:{roll}:{user_msg_id}"
         base_le = f"w{prefix}:tl_le:{{}}:{dummy_dmg}:{roll}:{upg}:{corr_str}:{ref_str}:{roll}:{user_msg_id}"
 
-        tl_total = "✓ TL Total" if current_page == "tl_total" else "TL Total"
-        tl_proc = "✓ TL Process" if current_page == "tl_process" else "TL Process"
-        le_total = "✓ L.E. Total" if current_page == "le_total" else "L.E. Total"
-        le_proc = "✓ L.E. Process" if current_page == "le_process" else "L.E. Process"
+        tl_total = "✓ TL Total" if current_page == "tt" else "TL Total"
+        tl_proc = "✓ TL Process" if current_page == "tp" else "TL Process"
+        le_total = "✓ L.E. Total" if current_page == "lt" else "L.E. Total"
+        le_proc = "✓ L.E. Process" if current_page == "lp" else "L.E. Process"
 
         keyboard = [
             [
-                InlineKeyboardButton(tl_total, callback_data=base_tl.format("tl_total")),
-                InlineKeyboardButton(tl_proc, callback_data=base_tl.format("tl_process")),
+                InlineKeyboardButton(tl_total, callback_data=base_tl.format("tt")),
+                InlineKeyboardButton(tl_proc, callback_data=base_tl.format("tp")),
             ],
             [
-                InlineKeyboardButton(le_total, callback_data=base_le.format("le_total")),
-                InlineKeyboardButton(le_proc, callback_data=base_le.format("le_process")),
+                InlineKeyboardButton(le_total, callback_data=base_le.format("lt")),
+                InlineKeyboardButton(le_proc, callback_data=base_le.format("lp")),
+            ],
+            [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+        ]
+        return InlineKeyboardMarkup(keyboard)
+
+    elif weapon_category == "cup":
+        # Cupid прогноз - две панели (Fury и Wrath) с галочками
+        dummy_dmg = 0
+
+        base_fury = f"w{prefix}:cup:{{}}:{dummy_dmg}:{roll}:{upg}:{corr_str}:{ref_str}:{roll}:{user_msg_id}"
+        base_wrath = f"w{prefix}:cup_sw:{{}}:{dummy_dmg}:{roll}:{upg}:{corr_str}:{ref_str}:{roll}:{user_msg_id}"
+
+        fury_total = "✓ Fury Total" if current_page == "ft" else "Fury Total"
+        fury_proc = "✓ Fury Process" if current_page == "fuP" else "Fury Process"
+        wrath_total = "✓ Wrath Total" if current_page == "wt" else "Wrath Total"
+        wrath_proc = "✓ Wrath Process" if current_page == "wrP" else "Wrath Process"
+
+        keyboard = [
+            [
+                InlineKeyboardButton(fury_total, callback_data=base_fury.format("ft")),
+                InlineKeyboardButton(fury_proc, callback_data=base_fury.format("fuP")),
+            ],
+            [
+                InlineKeyboardButton(wrath_total, callback_data=base_wrath.format("wt")),
+                InlineKeyboardButton(wrath_proc, callback_data=base_wrath.format("wrP")),
             ],
             [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
         ]
@@ -1027,73 +1232,124 @@ def generate_weapon_compare_keyboard(item_key, current_page, roll, curr_upg, cur
                     f"{'✓ ' if current_page == 'total' and is_active else ''}{short} Total",
                     callback_data=base.format("total"))
                 first_btn = InlineKeyboardButton(
-                    f"{'✓ ' if current_page == 'first_process' and is_active else ''}< 1-st Process",
-                    callback_data=base.format("first_process"))
+                    f"{'✓ ' if current_page == 'fp' and is_active else ''}< 1-st Process",
+                    callback_data=base.format("fp"))
                 second_btn = InlineKeyboardButton(
-                    f"{'✓ ' if current_page == 'second_process' and is_active else ''}< 2-nd Process",
-                    callback_data=base.format("second_process"))
+                    f"{'✓ ' if current_page == 'sp' and is_active else ''}< 2-nd Process",
+                    callback_data=base.format("sp"))
                 buttons.append([total_btn, first_btn, second_btn])
             else:
                 total_btn = InlineKeyboardButton(
                     f"{'✓ ' if current_page == 'total' and is_active else ''}{short} Total",
                     callback_data=base.format("total"))
                 actual_btn = InlineKeyboardButton(
-                    f"{'✓ ' if current_page == 'actual_process' and is_active else ''}< Actual Process",
-                    callback_data=base.format("actual_process"))
+                    f"{'✓ ' if current_page == 'ap' and is_active else ''}< Actual Process",
+                    callback_data=base.format("fp"))
                 wished_btn = InlineKeyboardButton(
-                    f"{'✓ ' if current_page == 'wished_process' and is_active else ''}< Wished Process",
-                    callback_data=base.format("wished_process"))
+                    f"{'✓ ' if current_page == 'wp' and is_active else ''}< Wished Process",
+                    callback_data=base.format("sp"))
                 buttons.append([total_btn, actual_btn, wished_btn])
 
         buttons.append([InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")])
         return InlineKeyboardMarkup(buttons)
 
     elif weapon_category == "tl":
-        # TL сравнение
+        # TL сравнение с галочками
         dummy_dmg = 0
 
         base_tl = f"l{prefix}:tl:{{}}:{dummy_dmg}:{roll_param}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
         base_le = f"l{prefix}:tl_le:{{}}:{dummy_dmg}:{roll_param}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
 
         if has_two_rolls:
-            tl_total = "✓ TL Total" if current_page == "tl_total" else "TL Total"
-            tl_first = "✓ < 1-st" if current_page == "tl_first" else "< 1-st"
-            tl_second = "✓ < 2-nd" if current_page == "tl_second" else "< 2-nd"
-            le_total = "✓ L.E. Total" if current_page == "le_total" else "L.E. Total"
-            le_first = "✓ < 1-st" if current_page == "le_first" else "< 1-st"
-            le_second = "✓ < 2-nd" if current_page == "le_second" else "< 2-nd"
+            tl_total = "✓ TL Total" if current_page == "tt" else "TL Total"
+            tl_first = "✓ < 1-st Process" if current_page == "tf" else "< 1-st Process"
+            tl_second = "✓ < 2-nd Process" if current_page == "ts" else "< 2-nd Process"
+            le_total = "✓ L.E. Total" if current_page == "lt" else "L.E. Total"
+            le_first = "✓ < 1-st Process" if current_page == "lf" else "< 1-st Process"
+            le_second = "✓ < 2-nd Process" if current_page == "ls" else "< 2-nd Process"
 
             keyboard = [
                 [
-                    InlineKeyboardButton(tl_total, callback_data=base_tl.format("tl_total")),
-                    InlineKeyboardButton(tl_first, callback_data=base_tl.format("tl_first")),
-                    InlineKeyboardButton(tl_second, callback_data=base_tl.format("tl_second")),
+                    InlineKeyboardButton(tl_total, callback_data=base_tl.format("tt")),
+                    InlineKeyboardButton(tl_first, callback_data=base_tl.format("tf")),
+                    InlineKeyboardButton(tl_second, callback_data=base_tl.format("ts")),
                 ],
                 [
-                    InlineKeyboardButton(le_total, callback_data=base_le.format("le_total")),
-                    InlineKeyboardButton(le_first, callback_data=base_le.format("le_first")),
-                    InlineKeyboardButton(le_second, callback_data=base_le.format("le_second")),
+                    InlineKeyboardButton(le_total, callback_data=base_le.format("lt")),
+                    InlineKeyboardButton(le_first, callback_data=base_le.format("lf")),
+                    InlineKeyboardButton(le_second, callback_data=base_le.format("ls")),
                 ],
                 [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
             ]
         else:
-            tl_total = "✓ TL Total" if current_page == "tl_total" else "TL Total"
-            tl_actual = "✓ < Actual" if current_page == "tl_actual" else "< Actual"
-            tl_wished = "✓ < Wished" if current_page == "tl_wished" else "< Wished"
-            le_total = "✓ L.E. Total" if current_page == "le_total" else "L.E. Total"
-            le_actual = "✓ < Actual" if current_page == "le_actual" else "< Actual"
-            le_wished = "✓ < Wished" if current_page == "le_wished" else "< Wished"
+            tl_total = "✓ TL Total" if current_page == "tt" else "TL Total"
+            tl_actual = "✓ < Actual Process" if current_page == "ta" else "< Actual Process"
+            tl_wished = "✓ < Wished Process" if current_page == "tw" else "< Wished Process"
+            le_total = "✓ L.E. Total" if current_page == "lt" else "L.E. Total"
+            le_actual = "✓ < Actual Process" if current_page == "la" else "< Actual Process"
+            le_wished = "✓ < Wished Process" if current_page == "lw" else "< Wished Process"
 
             keyboard = [
                 [
-                    InlineKeyboardButton(tl_total, callback_data=base_tl.format("tl_total")),
-                    InlineKeyboardButton(tl_actual, callback_data=base_tl.format("tl_actual")),
-                    InlineKeyboardButton(tl_wished, callback_data=base_tl.format("tl_wished")),
+                    InlineKeyboardButton(tl_total, callback_data=base_tl.format("tt")),
+                    InlineKeyboardButton(tl_actual, callback_data=base_tl.format("ta")),
+                    InlineKeyboardButton(tl_wished, callback_data=base_tl.format("tw")),
                 ],
                 [
-                    InlineKeyboardButton(le_total, callback_data=base_le.format("le_total")),
-                    InlineKeyboardButton(le_actual, callback_data=base_le.format("le_actual")),
-                    InlineKeyboardButton(le_wished, callback_data=base_le.format("le_wished")),
+                    InlineKeyboardButton(le_total, callback_data=base_le.format("lt")),
+                    InlineKeyboardButton(le_actual, callback_data=base_le.format("la")),
+                    InlineKeyboardButton(le_wished, callback_data=base_le.format("lw")),
+                ],
+                [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+            ]
+        return InlineKeyboardMarkup(keyboard)
+
+    elif weapon_category == "cup":
+        # Cupid сравнение с галочками
+        dummy_dmg = 0
+
+        base_fury = f"l{prefix}:cup:{{}}:{dummy_dmg}:{roll_param}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
+        base_wrath = f"l{prefix}:cup_sw:{{}}:{dummy_dmg}:{roll_param}:{curr_upg}:{curr_corr_str}:{curr_ref_str}:{des_upg}:{des_corr_str}:{des_ref_str}:{roll}:{user_msg_id}"
+
+        if has_two_rolls:
+            fury_total = "✓ Fury Total" if current_page == "ft" else "Fury Total"
+            fury_first = "✓ < 1-st Process" if current_page == "ff" else "< 1-st Process"
+            fury_second = "✓ < 2-nd Process" if current_page == "fs" else "< 2-nd Process"
+            wrath_total = "✓ Wrath Total" if current_page == "wt" else "Wrath Total"
+            wrath_first = "✓ < 1-st Process" if current_page == "wf" else "< 1-st Process"
+            wrath_second = "✓ < 2-nd Process" if current_page == "w2" else "< 2-nd Process"
+
+            keyboard = [
+                [
+                    InlineKeyboardButton(fury_total, callback_data=base_fury.format("ft")),
+                    InlineKeyboardButton(fury_first, callback_data=base_fury.format("ff")),
+                    InlineKeyboardButton(fury_second, callback_data=base_fury.format("fs")),
+                ],
+                [
+                    InlineKeyboardButton(wrath_total, callback_data=base_wrath.format("wt")),
+                    InlineKeyboardButton(wrath_first, callback_data=base_wrath.format("wf")),
+                    InlineKeyboardButton(wrath_second, callback_data=base_wrath.format("w2")),
+                ],
+                [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
+            ]
+        else:
+            fury_total = "✓ Fury Total" if current_page == "ft" else "Fury Total"
+            fury_actual = "✓ < Actual Process" if current_page == "fa" else "< Actual Process"
+            fury_wished = "✓ < Wished Process" if current_page == "fw" else "< Wished Process"
+            wrath_total = "✓ Wrath Total" if current_page == "wt" else "Wrath Total"
+            wrath_actual = "✓ < Actual Process" if current_page == "wa" else "< Actual Process"
+            wrath_wished = "✓ < Wished Process" if current_page == "ww" else "< Wished Process"
+
+            keyboard = [
+                [
+                    InlineKeyboardButton(fury_total, callback_data=base_fury.format("ft")),
+                    InlineKeyboardButton(fury_actual, callback_data=base_fury.format("fa")),
+                    InlineKeyboardButton(fury_wished, callback_data=base_fury.format("fw")),
+                ],
+                [
+                    InlineKeyboardButton(wrath_total, callback_data=base_wrath.format("wt")),
+                    InlineKeyboardButton(wrath_actual, callback_data=base_wrath.format("wa")),
+                    InlineKeyboardButton(wrath_wished, callback_data=base_wrath.format("ww")),
                 ],
                 [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
             ]
@@ -1105,35 +1361,34 @@ def generate_weapon_compare_keyboard(item_key, current_page, roll, curr_upg, cur
 
         if has_two_rolls:
             total_text = "✓ Total" if current_page == "total" else "Total"
-            first_process_text = "✓ 1-st Process" if current_page == "first_process" else "1-st Process"
-            second_process_text = "✓ 2-nd Process" if current_page == "second_process" else "2-nd Process"
+            first_process_text = "✓ 1-st Process" if current_page == "fp" else "1-st Process"
+            second_process_text = "✓ 2-nd Process" if current_page == "sp" else "2-nd Process"
 
             keyboard = [
                 [
                     InlineKeyboardButton(total_text, callback_data=base.format("total")),
-                    InlineKeyboardButton(first_process_text, callback_data=base.format("first_process")),
-                    InlineKeyboardButton(second_process_text, callback_data=base.format("second_process")),
+                    InlineKeyboardButton(first_process_text, callback_data=base.format("fp")),
+                    InlineKeyboardButton(second_process_text, callback_data=base.format("sp")),
                 ],
                 [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
             ]
         else:
             total_text = "✓ Total" if current_page == "total" else "Total"
-            actual_process_text = "✓ Actual Process" if current_page == "actual_process" else "Actual Process"
-            wished_process_text = "✓ Wished Process" if current_page == "wished_process" else "Wished Process"
+            actual_process_text = "✓ Actual Process" if current_page == "ap" else "Actual Process"
+            wished_process_text = "✓ Wished Process" if current_page == "wp" else "Wished Process"
 
             keyboard = [
                 [
                     InlineKeyboardButton(total_text, callback_data=base.format("total")),
-                    InlineKeyboardButton(actual_process_text, callback_data=base.format("actual_process")),
-                    InlineKeyboardButton(wished_process_text, callback_data=base.format("wished_process")),
+                    InlineKeyboardButton(actual_process_text, callback_data=base.format("ap")),
+                    InlineKeyboardButton(wished_process_text, callback_data=base.format("wp")),
                 ],
                 [InlineKeyboardButton("Свернуть", callback_data=f"close:{user_msg_id}")]
             ]
         return InlineKeyboardMarkup(keyboard)
 
-
 async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, item_key: str):
-    """Универсальная функция анализа оружия (!conq, !doom, !asc, !tl)"""
+    """Универсальная функция анализа оружия (!conq, !doom, !asc, !tl, !cup)"""
     if not is_allowed_thread(update):
         return
 
@@ -1156,7 +1411,8 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
             errors.append(f"❌ Урон ({args[0]}) должен быть числом.")
 
         item_info = ITEMS_MAPPING.get(item_key)
-        max_lvl = item_info['max_level'] if item_info else 45
+        # Для Cupid временно используем максимальный (99) для базовой проверки
+        max_lvl = 99 if item_info and item_info.get("category") == "cup" else (item_info['max_level'] if item_info else 45)
 
         try:
             upg_level = int(args[1])
@@ -1199,8 +1455,22 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
         weapon_info = determine_weapon_type(item_key, damage, upg_level, is_corrupted, reforge_mult)
         real_item_key = weapon_info["item_key"]
         item_info = ITEMS_MAPPING[real_item_key]
+        is_wrath = weapon_info.get("is_wrath", False)
 
-        # 🔧 ИСПРАВЛЕНИЕ: Определяем флаги правильно
+        # 🔧 ВАЛИДАЦИЯ: Проверяем соответствие уровня типу оружия
+        if weapon_info["weapon_category"] == "cup":
+            if not is_wrath and upg_level > 74:
+                error_message = (
+                    f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
+                    f"❌ Несоответствие данных!\n\n"
+                    f"По урону {damage:,.0f} это **Cupid's Fury** (макс. ур. 74)\n"
+                    f"Но ты указал уровень **{upg_level}**\n\n"
+                    f"Наебать пытался? Пиздабол."
+                )
+                if await _send_error(update, context, error_message, ""):
+                    return
+
+        # Определяем флаги для UI
         is_ws = weapon_info.get("is_ws", False)
         is_ad = weapon_info.get("is_ad", False)
 
@@ -1221,7 +1491,6 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
             weapon_info["weapon_category"]
         )
 
-        # 🔧 ИСПРАВЛЕНИЕ: Передаём is_ws и is_ad явно
         keyboard = generate_weapon_analysis_keyboard(
             item_key=real_item_key,
             current_page="total",
@@ -1232,9 +1501,10 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
             user_msg_id=update.message.message_id,
             weapon_category=weapon_info["weapon_category"],
             roll=weapon_info["roll"],
-            is_ws=is_ws,  # 🔧 Явно передаём
-            is_ad=is_ad,  # 🔧 Явно передаём
-            active_weapon=active_weapon
+            is_ws=is_ws,
+            is_ad=is_ad,
+            active_weapon=active_weapon,
+            is_wrath=is_wrath
         )
 
         await update.message.reply_text(
@@ -1246,8 +1516,9 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
     except Exception as e:
         await update.message.reply_text(f"Непредвиденная ошибка при расчете: {e}")
 
+
 async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, item_key: str):
-    """Универсальная функция прогноза оружия (!wconq, !wdoom, !wasc, !wtl)"""
+    """Универсальная функция прогноза оружия (!wconq, !wdoom, !wasc, !wtl, !wcup)"""
     if not is_allowed_thread(update):
         return
 
@@ -1276,6 +1547,7 @@ async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
 
     item_info = ITEMS_MAPPING.get(item_key)
     is_asc = item_info.get("category") == "asc" if item_info else False
+    is_cup = item_info.get("category") == "cup" if item_info else False
     min_roll = 6 if is_asc else 1
 
     # Парсинг roll
@@ -1288,13 +1560,17 @@ async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             errors.append(f"❌ Ролл ({left_args[0]}) должен быть числом.")
 
     # Парсинг правой части
-    max_lvl = item_info['max_level'] if item_info else 45
+    # 🔥 Для Cupid позволяем ввод до 99
+    if is_cup:
+        max_input_level = 99
+    else:
+        max_input_level = item_info['max_level'] if item_info else 45
 
     if not errors:
         try:
             target_level = int(right_args[0])
-            if target_level > max_lvl or target_level < 0:
-                errors.append(f"❌ Уровень оружия ({target_level}) не соответствует 0-{max_lvl}.")
+            if target_level > max_input_level or target_level < 0:
+                errors.append(f"❌ Уровень оружия ({target_level}) не соответствует 0-{max_input_level}.")
         except ValueError:
             errors.append(f"❌ Уровень улучшения ({right_args[0]}) должен быть числом.")
 
@@ -1332,30 +1608,42 @@ async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
     try:
         category = item_info.get("category", "normal") if item_info else "normal"
 
-        # 🔧 ИСПРАВЛЕНИЕ: Для ASC выбираем случайный меч для отображения
         active_weapon = None
         if category == "asc":
             active_weapon = random.choice(["mb", "lk", "me", "at", "ad", "ws"])
-            real_item_key = f"asc_{active_weapon}"  # <-- с префиксом asc_
+            real_item_key = f"asc_{active_weapon}"
             weapon_roll = 11 if active_weapon == "ws" else roll
         elif category == "tl":
-            real_item_key = "tl"  # По умолчанию показываем обычный TL
+            real_item_key = "tl"
             weapon_roll = roll
+        elif category == "cup":
+            # 🔥 Определяем тип на основе уровня
+            if target_level > 74:
+                real_item_key = "cup_sw"  # Wrath
+                weapon_roll = roll
+            else:
+                real_item_key = "cup"  # Fury
+                weapon_roll = roll
         else:
             real_item_key = item_key
             weapon_roll = roll
 
         real_item_info = ITEMS_MAPPING[real_item_key]
 
-        # Генерируем текст
+        # 🔥 ГЛАВНОЕ: Реально ограничиваем уровень для расчётов!
+        actual_max = real_item_info['max_level']
+        calc_level = min(target_level, actual_max)
+
+        # 🔥 Передаём calc_level для реальных расчётов, и target_level для отображения
         text = generate_forecast_total_page(
-            real_item_info, weapon_roll, target_level, is_corrupted,
-            reforge_name, reforge_mult, category
+            real_item_info, weapon_roll, calc_level, is_corrupted,
+            reforge_name, reforge_mult, category, target_level  # <-- передаём оба
         )
 
-        # Определяем текущую страницу для подсветки
         if category == "tl":
-            current_page = "tl_total"
+            current_page = "tt"
+        elif category == "cup":
+            current_page = "ft" if real_item_key == "cup" else "wt"
         else:
             current_page = "total"
 
@@ -1363,7 +1651,7 @@ async def w_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             item_key=real_item_key,
             current_page=current_page,
             roll=roll,
-            upg=target_level,
+            upg=target_level,  # Для callback'ов сохраняем оригинал
             corr=is_corrupted,
             reforge_name=reforge_name,
             user_msg_id=update.message.message_id,
@@ -1393,9 +1681,11 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
 
     item_info = ITEMS_MAPPING.get(item_key)
     is_asc = item_info.get("category") == "asc" if item_info else False
+    is_cup = item_info.get("category") == "cup" if item_info else False
     min_roll = 6 if is_asc else 1
     max_roll = 11
-    max_lvl = item_info['max_level'] if item_info else 45
+    # 🔥 Для Cupid разрешаем ввод до 99 (Wrath max), реальное ограничение применяется позже
+    max_lvl = 99 if is_cup else (item_info['max_level'] if item_info else 45)
 
     # === НОВЫЙ ПАРСИНГ: Определяем режим (1 или 2 ролла) ===
 
@@ -1588,11 +1878,9 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         if await _send_error(update, context, error_message, example):
             return
 
-    # === ГЕНЕРАЦИЯ РЕЗУЛЬТАТОВ ===
     try:
         category = item_info.get("category", "normal") if item_info else "normal"
 
-        # Для ASC выбираем активное оружие (для отображения)
         active_weapon = None
         if category == "asc":
             active_weapon = random.choice(["mb", "lk", "me", "at", "ad", "ws"])
@@ -1601,23 +1889,39 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         elif category == "tl":
             real_item_key = "tl"
             weapon_roll = roll1
+        elif category == "cup":
+            # 🔥 Определяем тип на основе максимального уровня из ввода
+            max_input_level = max(des_upg, curr_upg)
+            if max_input_level > 74:
+                real_item_key = "cup_sw"  # Wrath
+                weapon_roll = roll1
+            else:
+                real_item_key = "cup"  # Fury
+                weapon_roll = roll1
         else:
             real_item_key = item_key
             weapon_roll = roll1
 
         real_item_info = ITEMS_MAPPING[real_item_key]
 
-        # Генерируем текст (передаём флаг has_two_rolls)
+        # 🔥 ГЛАВНОЕ: Реально ограничиваем уровни для расчётов!
+        actual_max = real_item_info['max_level']
+        calc_curr_upg = min(curr_upg, actual_max)
+        calc_des_upg = min(des_upg, actual_max)
+
+        # Генерируем текст с реальными ограниченными уровнями
         text = generate_compare_total_page(
-            real_item_info, weapon_roll,  # roll1
-            curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
-            des_upg, des_corr, des_ref_mult, des_ref_name,
-            category, has_two_rolls, roll2 if has_two_rolls else None  # ← ДОБАВИЛ roll2
+            real_item_info, weapon_roll,
+            calc_curr_upg, curr_corr, curr_ref_mult, curr_ref_name,
+            calc_des_upg, des_corr, des_ref_mult, des_ref_name,
+            category, has_two_rolls, roll2 if has_two_rolls else None,
+            curr_upg, des_upg  # <-- передаём оригиналы для отображения
         )
 
-        # Определяем текущую страницу
         if category == "tl":
-            current_page = "tl_total"
+            current_page = "tt"
+        elif category == "cup":
+            current_page = "ft" if real_item_key == "cup" else "wt"
         else:
             current_page = "total"
 
@@ -1625,7 +1929,7 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             item_key=real_item_key,
             current_page=current_page,
             roll=roll1,
-            curr_upg=curr_upg,
+            curr_upg=curr_upg,  # Оригинальные для callback'ов
             curr_corr=curr_corr,
             curr_ref=curr_ref_name,
             des_upg=des_upg,
@@ -1635,7 +1939,7 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
             weapon_category=category,
             original_roll=roll1,
             active_weapon=active_weapon,
-            has_two_rolls=has_two_rolls,  # Новый параметр
+            has_two_rolls=has_two_rolls,
             roll2=roll2 if has_two_rolls else None
         )
 
@@ -1647,7 +1951,6 @@ async def l_analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, i
         )
     except Exception as e:
         await update.message.reply_text(f"Непредвиденная ошибка при расчёте: {e}")
-
 
 async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Единый обработчик callback'ов для всего оружия"""
@@ -1683,7 +1986,7 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     prefix = data_parts[0]
-    raw_item_key = data_parts[1]  # cb, db, ws, ad, asc_mb, tl, tl_le и т.д.
+    raw_item_key = data_parts[1]  # cb, db, ws, ad, asc_mb, tl, tl_le, cup, cup_sw и т.д.
     page = data_parts[2]
 
     # ==================== БЛОК 4: ОПРЕДЕЛЕНИЕ ТИПА КОМАНДЫ ====================
@@ -1692,16 +1995,17 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
 
     if prefix.startswith("w"):
         command_type = "forecast"
-        category = prefix[1:]
+        category = prefix[1:]  # wnormal -> normal, wtl -> tl, wcup -> cup
     elif prefix.startswith("l"):
         command_type = "compare"
-        category = prefix[1:]
+        category = prefix[1:]  # lnormal -> normal, ltl -> tl, lcup -> cup
     else:
-        category = prefix
+        category = prefix  # normal, tl, asc, cup
 
     # 🔧 ИСПРАВЛЕНИЕ: Определяем специальные типы ДО маппинга
     is_ws = (raw_item_key == "ws")
     is_ad = (raw_item_key == "ad")
+    is_cup_sw = (raw_item_key == "cup_sw")
 
     # 🔧 ИСПРАВЛЕНИЕ: Мапим raw_item_key в реальный item_key для ITEMS_MAPPING
     if category == "asc":
@@ -1713,6 +2017,9 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             item_key = raw_item_key
         else:
             item_key = f"asc_{raw_item_key}"
+    elif category == "cup":
+        # Cupid: cup или cup_sw
+        item_key = "cup_sw" if is_cup_sw else "cup"
     else:
         item_key = raw_item_key
 
@@ -1727,16 +2034,31 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         corr = data_parts[5] == 'y'
         reforge_name = data_parts[6]
         roll = int(data_parts[7])
-        is_le = bool(int(data_parts[8])) if len(data_parts) > 8 else False
+        # data_parts[8] - is_le для tl, is_wrath для cup, или 0 для остальных
+        is_special = bool(int(data_parts[8])) if len(data_parts) > 8 else False
         user_msg_id = int(data_parts[9]) if len(data_parts) > 9 else int(data_parts[-1])
 
         reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
 
-        # Теперь item_key правильный (asc_ad, а не ad)
+        # Получаем item_info
         item_info = ITEMS_MAPPING[item_key]
 
-        # Определяем active_weapon для UI
+        # Определяем base_dmg в зависимости от типа
+        if is_ws:
+            base_dmg = WOODEN_SWORD_BASE
+        elif is_ad:
+            base_dmg = DUAL_DAGGERS_V2_STATS.get(roll, DUAL_DAGGERS_V2_STATS[6])
+        elif category == "cup" and is_cup_sw:
+            base_dmg = DOOMBRINGER_STATS[roll]
+        elif category == "cup":
+            base_dmg = CUPIDS_FURY_STATS[roll]
+        else:
+            base_dmg = item_info['stats'][roll]
+
+        # Определяем active_weapon для UI (только для ASC)
         active_weapon = None
+        is_wrath = False  # 🔧 Для Cupid в callback
+
         if category == "asc":
             if is_ws:
                 active_weapon = "ws"
@@ -1744,16 +2066,11 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
                 active_weapon = "ad"
             else:
                 active_weapon = item_key.replace("asc_", "") if item_key.startswith("asc_") else "mb"
+        elif category == "cup":
+            # 🔧 Для Cupid определяем is_wrath из callback данных
+            is_wrath = is_cup_sw  # is_cup_sw определено выше
 
-        # Определяем base_dmg
-        if is_ws:
-            base_dmg = WOODEN_SWORD_BASE
-        elif is_ad:
-            base_dmg = DUAL_DAGGERS_V2_STATS.get(roll, DUAL_DAGGERS_V2_STATS[6])
-        else:
-            base_dmg = item_info['stats'][roll]
-
-        # Генерируем текст...
+        # Генерируем текст в зависимости от страницы
         if page == "total":
             text = generate_total_page(item_info, dmg, upg, corr, reforge_name, reforge_mult,
                                        roll, base_dmg, category)
@@ -1769,8 +2086,9 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             await query.answer("Неизвестная страница", show_alert=True)
             return
 
+        # Генерируем клавиатуру
         keyboard = generate_weapon_analysis_keyboard(
-            item_key=raw_item_key,  # Используем короткий ключ для callback
+            item_key=raw_item_key,
             current_page=page,
             dmg=dmg,
             upg=upg,
@@ -1781,12 +2099,13 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             roll=roll,
             is_ws=is_ws,
             is_ad=is_ad,
-            active_weapon=active_weapon
+            active_weapon=active_weapon,
+            is_wrath=is_wrath  # 🔧 Передаём is_wrath
         )
 
     # ==================== БЛОК 6: ОБРАБОТКА FORECAST ====================
     elif command_type == "forecast":
-        reforge_name = data_parts[6] if category == "normal" else data_parts[7]
+        reforge_name = data_parts[6] if category in ("normal", "tl", "cup") else data_parts[7]
         reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
 
         # --- Обычное оружие (normal) ---
@@ -1814,14 +2133,17 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         # --- Timelost (tl) ---
         elif category == "tl":
             # Формат: wtl:tl:tl_total:dmg:roll:upg:corr:reforge:orig_roll:user_msg_id
-            real_page = page.replace("tl_", "").replace("le_", "")
-            is_le_page = page.startswith("le_")
-            tl_item_key = "tl_le" if is_le_page else "tl"
+            _tl_page_map = {"tt": ("total", "tl"), "tp": ("process", "tl"),
+                              "lt": ("total", "tl_le"), "lp": ("process", "tl_le")}
+            real_page, _tl_key = _tl_page_map.get(page, ("total", "tl"))
+            tl_item_key = _tl_key
             item_info = ITEMS_MAPPING[tl_item_key]
 
             roll = int(data_parts[4])
             upg = int(data_parts[5])
             corr = data_parts[6] == 'y'
+            reforge_name = data_parts[7]  # ← ИСПРАВЛЕНО: было [6], должно быть [7]
+            reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
             user_msg_id = int(data_parts[-1])
 
             if real_page == "total":
@@ -1837,9 +2159,42 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             )
             parse_mode = ParseMode.HTML
 
+        # --- Cupid (cup) - НОВОЕ ---
+        elif category == "cup":
+            # Формат: wcup:cup:fury_total:dmg:roll:upg:corr:reforge:orig_roll:user_msg_id
+            _cup_page_map = {"ft": ("total", "cup"), "fuP": ("process", "cup"),
+                              "wt": ("total", "cup_sw"), "wrP": ("process", "cup_sw")}
+            real_page, _cup_key = _cup_page_map.get(page, ("total", "cup"))
+            cup_item_key = _cup_key
+            item_info = ITEMS_MAPPING[cup_item_key]
+
+            roll = int(data_parts[4])
+            upg_raw = int(data_parts[5])
+            corr = data_parts[6] == 'y'
+            reforge_name = data_parts[7]  # ← ИСПРАВЛЕНО: было [6], должно быть [7]
+            reforge_mult = REFORGE_MODIFIERS.get(reforge_name, 1.0)
+            user_msg_id = int(data_parts[-1])
+
+            # 🔥 Обрезаем уровень до максимума конкретного оружия (Fury max=74, Wrath max=99)
+            actual_max = item_info['max_level']
+            upg = min(upg_raw, actual_max)
+            display_upg = upg_raw if upg_raw != upg else None
+
+            if real_page == "total":
+                text = generate_forecast_total_page(item_info, roll, upg, corr, reforge_name, reforge_mult, category, display_upg)
+            elif real_page == "process":
+                text = generate_forecast_process_page(item_info, roll, upg, corr, reforge_name, reforge_mult, category)
+            else:
+                await query.answer("Неизвестная страница", show_alert=True)
+                return
+
+            keyboard = generate_weapon_forecast_keyboard(
+                cup_item_key, page, roll, upg_raw, corr, reforge_name, user_msg_id, category, roll
+            )
+            parse_mode = ParseMode.HTML
+
         # --- ASC (asc) ---
-        else:  # category == "asc"
-            # Формат: wasc:mb:total:dmg:weapon_roll:upg:corr:reforge:orig_roll:user_msg_id
+        else:
             weapon_roll = int(data_parts[4])
             upg = int(data_parts[5])
             corr = data_parts[6] == 'y'
@@ -1904,11 +2259,10 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
                 text = generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref,
                                                    des_upg, des_corr, des_ref_mult, des_ref, category, has_two_rolls,
                                                    roll2)
-            elif page == "actual_process" or page == "first_process":
+            elif page == "ap" or page == "fp":
                 text = generate_compare_process_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref,
                                                      "Actual" if not has_two_rolls else "1-st", category)
-            elif page == "wished_process" or page == "second_process":
-                # Для второго ролла используем roll2
+            elif page == "wp" or page == "sp":
                 calc_roll = roll2 if has_two_rolls and roll2 else roll
                 text = generate_compare_process_page(item_info, calc_roll, des_upg, des_corr, des_ref_mult, des_ref,
                                                      "Wished" if not has_two_rolls else "2-nd", category)
@@ -1937,9 +2291,14 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             else:
                 roll = int(roll_param)
 
-            real_page = page.replace("tl_", "").replace("le_", "")
-            is_le_page = page.startswith("le_")
-            tl_item_key = "tl_le" if is_le_page else "tl"
+            _ltl_map = {
+                "tt": ("total",  "tl"),    "ta": ("actual",  "tl"),    "tw": ("wished",  "tl"),
+                "tf": ("first",  "tl"),    "ts": ("second",  "tl"),
+                "lt": ("total",  "tl_le"), "la": ("actual",  "tl_le"), "lw": ("wished",  "tl_le"),
+                "lf": ("first",  "tl_le"), "ls": ("second",  "tl_le"),
+            }
+            real_page, _tl_key = _ltl_map.get(page, ("total", "tl"))
+            tl_item_key = _tl_key
             item_info = ITEMS_MAPPING[tl_item_key]
 
             curr_upg = int(data_parts[5])
@@ -1976,6 +2335,71 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
             )
             parse_mode = ParseMode.HTML
 
+        # --- Cupid (cup) - НОВОЕ ---
+        elif category == "cup":
+            # Формат: lcup:cup:fury_total:roll_param:curr_upg:curr_corr:curr_ref:des_upg:des_corr:des_ref:orig_roll:user_msg_id
+
+            roll_param = data_parts[4]
+            has_two_rolls = '_' in roll_param
+
+            if has_two_rolls:
+                roll1_str, roll2_str = roll_param.split('_')
+                roll = int(roll1_str)
+                roll2 = int(roll2_str)
+            else:
+                roll = int(roll_param)
+
+            _lcup_map = {
+                "ft": ("total",  "cup"),    "fa": ("actual",  "cup"),    "fw": ("wished",  "cup"),
+                "ff": ("first",  "cup"),    "fs": ("second",  "cup"),
+                "wt": ("total",  "cup_sw"), "wa": ("actual",  "cup_sw"), "ww": ("wished",  "cup_sw"),
+                "wf": ("first",  "cup_sw"), "w2":("second",  "cup_sw"),
+            }
+            real_page, _cup_key = _lcup_map.get(page, ("total", "cup"))
+            cup_item_key = _cup_key
+            item_info = ITEMS_MAPPING[cup_item_key]
+
+            curr_upg_raw = int(data_parts[5])
+            curr_corr = data_parts[6] == 'y'
+            curr_ref = data_parts[7]
+            des_upg_raw = int(data_parts[8])
+            des_corr = data_parts[9] == 'y'
+            des_ref = data_parts[10]
+            user_msg_id = int(data_parts[-1])
+
+            curr_ref_mult = REFORGE_MODIFIERS.get(curr_ref, 1.0)
+            des_ref_mult = REFORGE_MODIFIERS.get(des_ref, 1.0)
+
+            # 🔥 Обрезаем уровни до максимума конкретного оружия (Fury max=74, Wrath max=99)
+            actual_max = item_info['max_level']
+            curr_upg = min(curr_upg_raw, actual_max)
+            des_upg = min(des_upg_raw, actual_max)
+            display_curr = curr_upg_raw if curr_upg_raw != curr_upg else None
+            display_des = des_upg_raw if des_upg_raw != des_upg else None
+
+            # Генерируем текст
+            if real_page == "total":
+                text = generate_compare_total_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref,
+                                                   des_upg, des_corr, des_ref_mult, des_ref, category, has_two_rolls,
+                                                   roll2, display_curr, display_des)
+            elif real_page == "actual" or real_page == "first":
+                text = generate_compare_process_page(item_info, roll, curr_upg, curr_corr, curr_ref_mult, curr_ref,
+                                                     "Actual" if not has_two_rolls else "1-st", category)
+            elif real_page == "wished" or real_page == "second":
+                calc_roll = roll2 if has_two_rolls and roll2 else roll
+                text = generate_compare_process_page(item_info, calc_roll, des_upg, des_corr, des_ref_mult, des_ref,
+                                                     "Wished" if not has_two_rolls else "2-nd", category)
+            else:
+                await query.answer("Неизвестная страница", show_alert=True)
+                return
+
+            keyboard = generate_weapon_compare_keyboard(
+                cup_item_key, page, roll, curr_upg_raw, curr_corr, curr_ref,
+                des_upg_raw, des_corr, des_ref, user_msg_id, category, roll,
+                None, has_two_rolls, roll2
+            )
+            parse_mode = ParseMode.HTML
+
         # --- ASC (asc) ---
         else:  # category == "asc"
             # Формат: lasc:mb:total:dmg:weapon_roll:curr_upg:curr_corr:curr_ref:des_upg:des_corr:des_ref:orig_roll:user_msg_id:has_two_rolls:roll2
@@ -2007,11 +2431,11 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
                 text = generate_compare_total_page(item_info, weapon_roll, curr_upg, curr_corr, curr_ref_mult, curr_ref,
                                                    des_upg, des_corr, des_ref_mult, des_ref, category, has_two_rolls,
                                                    roll2)
-            elif page == "actual_process" or page == "first_process":
+            elif page == "ap" or page == "fp":
                 text = generate_compare_process_page(item_info, weapon_roll, curr_upg, curr_corr, curr_ref_mult,
                                                      curr_ref,
                                                      "Actual" if not has_two_rolls else "1-st", category)
-            elif page == "wished_process" or page == "second_process":
+            elif page == "wp" or page == "sp":
                 calc_roll = roll2 if has_two_rolls and roll2 else weapon_roll
                 text = generate_compare_process_page(item_info, calc_roll, des_upg, des_corr, des_ref_mult, des_ref,
                                                      "Wished" if not has_two_rolls else "2-nd", category)
@@ -2042,10 +2466,8 @@ async def weapon_analysis_callback(update: Update, context: ContextTypes.DEFAULT
         traceback.print_exc()
         await query.answer("Произошла ошибка при обработке", show_alert=True)
 
-
 import base64
 import struct
-
 
 def pack_armor_data_compact(armor_data: dict, command: str) -> str:
     """Ультракомпактная упаковка данных брони: бинарные данные + base64"""
@@ -2073,8 +2495,8 @@ def pack_armor_data_compact(armor_data: dict, command: str) -> str:
                 upg = data['upg']
                 corrupted = 1 if data['corrupted'] else 0
 
-                # HP делим на 10 (точность ±5, макс 65535*10 = 655350)
-                hp_compressed = min(65535, max(0, hp // 10))
+                # HP храним напрямую в uint16 (макс HP брони ~8000, влезает без деления)
+                hp_compressed = min(65535, max(0, hp))
                 data_bytes.extend(struct.pack('>HB', hp_compressed, upg))
                 data_bytes.append(corrupted)
 
@@ -2151,7 +2573,7 @@ def unpack_armor_data_compact(data_str: str, command: str) -> dict:
                 idx += 4
 
                 armor_data[part] = {
-                    'hp': hp_compressed * 10,
+                    'hp': hp_compressed,
                     'upg': upg,
                     'corrupted': bool(corrupted)
                 }
@@ -2308,8 +2730,8 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
         roll = find_roll_for_armor(base_stats, hp, upg, corrupted)
         base_hp = base_stats[roll]
 
-        spent = calculate_gold(item_info['upgrade_cost_lvl1'], upg)
-        total_needed = calculate_gold(item_info['upgrade_cost_lvl1'], item_info['max_level'])
+        spent = calculate_gold(upg)
+        total_needed = calculate_gold(item_info['max_level'])
         remaining = max(0, total_needed - spent)
 
         max_lvl = item_info['max_level']
@@ -2333,13 +2755,12 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
 
         base_hp = base_stats[roll]
         hp_at_target = calculate_armor_stat_at_level(base_hp, upg, corrupted, 1.0, "armor")
-        gold_needed = calculate_gold(item_info['upgrade_cost_lvl1'], upg)
 
         max_lvl = item_info['max_level']
         if upg >= max_lvl:
             gold_needed = 0
         else:
-            gold_needed = calculate_gold(item_info['upgrade_cost_lvl1'], upg)
+            gold_needed = calculate_gold(upg)
 
         return (
             f"📊 <b>Прогноз {armor_name} — {part_name}</b> 🛡️\n\n"
@@ -2371,13 +2792,13 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
         max_lvl = item_info['max_level']
 
         # 🔧 ИСПРАВЛЕНО: Расчёт золота в одном месте с проверкой max уровня
-        curr_spent = calculate_gold(item_info['upgrade_cost_lvl1'], upg1)
+        curr_spent = calculate_gold(upg1)
 
         # Если upg2 >= max_lvl — считаем как полную стоимость до максимума
         if upg2 >= max_lvl:
-            des_gold = calculate_gold(item_info['upgrade_cost_lvl1'], max_lvl)
+            des_gold = calculate_gold(max_lvl)
         else:
-            des_gold = calculate_gold(item_info['upgrade_cost_lvl1'], upg2)
+            des_gold = calculate_gold(upg2)
 
         # Дополнительное золото только для одного ролла
         add_gold = 0
@@ -2388,11 +2809,11 @@ def generate_armor_part_page(item_info: dict, armor_data: dict, command: str, pa
         if has_two_rolls:
             # Ролл 1: текущее состояние
             spent_roll1 = curr_spent
-            remaining_roll1 = max(0, calculate_gold(item_info['upgrade_cost_lvl1'], max_lvl) - spent_roll1)
+            remaining_roll1 = max(0, calculate_gold(max_lvl) - spent_roll1)
 
             # Ролл 2: желаемое состояние
             spent_roll2 = des_gold
-            remaining_roll2 = max(0, calculate_gold(item_info['upgrade_cost_lvl1'], max_lvl) - spent_roll2)
+            remaining_roll2 = max(0, calculate_gold(max_lvl) - spent_roll2)
 
         upg_diff = upg2 - upg1
         hp_diff = des_hp - curr_hp
@@ -2571,8 +2992,8 @@ def generate_armor_process_page(item_info: dict,
         base_hp1 = base_stats[roll1]
         base_hp2 = base_stats[roll2] if has_two_rolls else base_hp1
 
-        is_actual = page_type in ["actual_process", "first_process"]
-        is_wished = page_type in ["wished_process", "second_process"]
+        is_actual = page_type in ["ap", "fp", "fp"]
+        is_wished = page_type in ["wp", "sp", "sp"]
 
         if is_actual:
             display_name = "Текущее состояние" if not has_two_rolls else "1-ая броня"
@@ -2635,7 +3056,11 @@ def generate_armor_process_page(item_info: dict,
             print(f"[PROC_PAGE] ✅ Страница сгенерирована, длина: {len(''.join(steps))}")
             return "\n".join(steps)
 
-def generate_armor_tablet_page(item_info: dict, armor_data: dict, part: str) -> str:
+
+def generate_armor_tablet_page(item_info, armor_data, part):
+    """Универсальная Tablet страница для брони"""
+    from game_data import UPGRADE_COSTS
+
     part_names = {STAGE_HELMET: 'Шлем', STAGE_CHEST: 'Нагрудник', STAGE_LEGS: 'Штаны'}
     part_keys = {STAGE_HELMET: 'Helmet', STAGE_CHEST: 'Chestplate', STAGE_LEGS: 'Leggings'}
 
@@ -2659,16 +3084,13 @@ def generate_armor_tablet_page(item_info: dict, armor_data: dict, part: str) -> 
     sep = "-" * len(header)
     rows = [header, sep]
 
-    b1 = item_info['upgrade_cost_lvl1']
-    prev_gold = 0
-
     for level in range(0, item_info['max_level'] + 1):
-        total_gold = calculate_gold(b1, level)
-        level_cost = total_gold - prev_gold if level > 0 else 0
-        prev_gold = total_gold
+        # Стоимость текущего уровня
+        level_cost = UPGRADE_COSTS.get(level, 0) if level > 0 else 0
 
         hp = calculate_armor_stat_at_level(base_hp, level, corrupted, 1.0, "armor")
         rows.append(f"{level:<5} | {level_cost:<11,} | {hp:<12.2f}")
+
     table_content = "\n".join(rows)
     title_line = f"{item_info['name']} — {part_names[part]} | ROLL {roll}/11 | {'CORRUPTED' if corrupted else 'NORMAL'}"
 
@@ -2688,17 +3110,6 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
 
     # Упаковываем данные
     packed_data = pack_armor_data_compact(armor_data, command)
-
-    # КОРОТКИЕ коды для страниц (1 символ!)
-    PAGE_CODES = {
-        'total': 't',
-        'process': 'p',
-        'tablet': 'b',
-        'actual_process': 'a',
-        'wished_process': 'w',
-        'first_process': 'f',
-        'second_process': 's'
-    }
 
     for part in parts_order:
         if armor_data.get(part) is None:
@@ -2746,8 +3157,8 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
         elif command in ['lfz', 'lz', 'lhk', 'lk']:
             # Сравнение - Actual/Wished или 1st/2nd
             if has_two_rolls:
-                first_text = f"{'✓ ' if is_current and current_page == 'first_process' else ''}< 1st Process"
-                second_text = f"{'✓ ' if is_current and current_page == 'second_process' else ''}< 2nd Process"
+                first_text = f"{'✓ ' if is_current and current_page == 'fp' else ''}< 1st Process"
+                second_text = f"{'✓ ' if is_current and current_page == 'sp' else ''}< 2nd Process"
 
                 cb_first = f"a:{command}:{part}:f:{user_msg_id}:{packed_data}"
                 cb_second = f"a:{command}:{part}:s:{user_msg_id}:{packed_data}"
@@ -2755,8 +3166,8 @@ def generate_armor_results_keyboard(command: str, armor_data: dict, user_msg_id:
                 part_buttons.append(InlineKeyboardButton(first_text, callback_data=cb_first))
                 part_buttons.append(InlineKeyboardButton(second_text, callback_data=cb_second))
             else:
-                actual_text = f"{'✓ ' if is_current and current_page == 'actual_process' else ''}< Actual Process"
-                wished_text = f"{'✓ ' if is_current and current_page == 'wished_process' else ''}< Wished Process"
+                actual_text = f"{'✓ ' if is_current and current_page == 'ap' else ''}< Actual Process"
+                wished_text = f"{'✓ ' if is_current and current_page == 'wp' else ''}< Wished Process"
 
                 cb_actual = f"a:{command}:{part}:a:{user_msg_id}:{packed_data}"
                 cb_wished = f"a:{command}:{part}:w:{user_msg_id}:{packed_data}"
@@ -3771,8 +4182,8 @@ async def armor_results_callback(update: Update, context: ContextTypes.DEFAULT_T
     # Определяем страницу
     page_map = {
         't': 'total', 'p': 'process', 'b': 'tablet',
-        'a': 'actual_process', 'w': 'wished_process',
-        'f': 'first_process', 's': 'second_process'
+        'a': 'ap', 'w': 'wp',
+        'f': 'fp', 's': 'sp'
     }
     page_full = page_map.get(page_code, page_code)
     print(f"[ARMOR_CB] Полная страница: {page_full}")
@@ -3796,7 +4207,7 @@ async def armor_results_callback(update: Update, context: ContextTypes.DEFAULT_T
     try:
         if page_full == "total":
             text = generate_armor_part_page(item_info, armor_data, command, part)
-        elif page_full in ["process", "actual_process", "wished_process", "first_process", "second_process"]:
+        elif page_full in ["process", "ap", "wp", "fp", "sp"]:
             text = generate_armor_process_page(item_info, armor_data, command, part, page_full)
         elif page_full == "tablet":
             text = generate_armor_tablet_page(item_info, armor_data, part)
@@ -4148,6 +4559,94 @@ async def asc_table_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"Ошибка: {e}", reply_to_message_id=update.message.message_id)
 
+
+# --- КОНСТАНТЫ ДЛЯ !cupr ---
+CALLBACK_PREFIX_CUPR = "cupr"
+CALLBACK_CUPR_FURY = "fury"
+CALLBACK_CUPR_WRATH = "wrath"
+
+
+def format_cup_table_text(current_page="fury"):
+    """Форматирование таблицы роллов Cupid"""
+
+    if current_page == "wrath":
+        # Cupid's Wrath (Secret)
+        stats = DOOMBRINGER_STATS
+        title = "CUPIDS_WRATH"
+        subtitle = "Secret"
+    else:
+        # Cupid's Fury (Mythic)
+        stats = CUPIDS_FURY_STATS
+        title = "CUPIDS_FURY"
+        subtitle = "Mythic"
+
+    # Заголовок с 3 колонками: Roll | Base DMG | Corrupted
+    header = f"{'ROLL':<5} | {'Base DMG':<10} | {'Corrupted DMG':<13}"
+    sep = "-" * len(header)
+    rows = [header, sep]
+
+    for roll in range(1, 12):
+        base_value = stats[roll]
+        corrupted_value = base_value * 1.5
+
+        # Форматируем числа с разделителями тысяч
+        base_str = f"{base_value:,.2f}"
+        corr_str = f"{corrupted_value:,.2f}"
+
+        rows.append(f"{roll:<5} | {base_str:<10} | {corr_str:<13}")
+
+    table_content = "\n".join(rows)
+
+    return f"```{title}\n{subtitle}\n\n{table_content}\n```"
+
+
+def get_cup_table_keyboard(current_page="fury", user_message_id=None):
+    """Клавиатура для !cupr"""
+
+    def make_callback(action):
+        base = f"{CALLBACK_PREFIX_CUPR}:{action}"
+        return f"{base}:{user_message_id}" if user_message_id else base
+
+    fury_text = "✓ Fury" if current_page == "fury" else "Fury"
+    wrath_text = "✓ Wrath" if current_page == "wrath" else "Wrath"
+
+    # Формируем callback_data
+    close_callback = f"{CALLBACK_PREFIX_CUPR}:close"
+    if user_message_id:
+        close_callback += f":{user_message_id}"
+
+    keyboard = [
+        [
+            InlineKeyboardButton(fury_text, callback_data=make_callback(CALLBACK_CUPR_FURY)),
+            InlineKeyboardButton(wrath_text, callback_data=make_callback(CALLBACK_CUPR_WRATH)),
+        ],
+        [InlineKeyboardButton("Свернуть", callback_data=close_callback)]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+async def cup_table_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды !cupr"""
+    if not is_allowed_thread(update):
+        return
+
+    text = format_cup_table_text("fury")
+    keyboard = get_cup_table_keyboard("fury", update.message.message_id)
+
+    try:
+        await update.message.reply_text(
+            text=text,
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=keyboard,
+            reply_to_message_id=update.message.message_id,
+            disable_web_page_preview=True
+        )
+    except Exception as e:
+        await update.message.reply_text(
+            f"Ошибка при отправке таблицы: {e}",
+            reply_to_message_id=update.message.message_id
+        )
+
 # --- КОНСТАНТЫ ДЛЯ UI ТАБЛИЦ ---
 CALLBACK_PREFIX_CONQR = "conqr"
 CALLBACK_PREFIX_DOOMR = "doomr"
@@ -4176,6 +4675,7 @@ def get_main_page_text():
 `!conqr` - Список роллов Конки (Conqueror's Blade)
 `!ascr` - Список роллов всех Ascended оружий
 `!tlr` - Список роллов для TL конков (TimeLost Conqueror's Blade)
+`!cupr` - Список роллов всех Cupid оружий
 `!fzr` - Список роллов Furious Zeus Set 
 `!zr` - Список роллов Zeus Set 
 `!hkr` - Список роллов Heroic Kronax Set
@@ -4235,6 +4735,9 @@ def get_current_page_text():
 *Все виды TL Conqueror's Blades:*
 `!tl` {dmg} {upg} {y/n} {reforge}
 
+*Cupid's Fury/Wrath оружия*
+`!cup` {dmg} {upg} {y/n} {reforge}
+
 *Броня:* 
 `!fz` / `!z` / `!hk` / `!k`
 
@@ -4260,6 +4763,9 @@ def get_w_page_text():
 *Все виды TL Conqueror's Blades:*
 `!wtl` {ролл} > {upg} {y/n} {reforge}
 
+*Cupid's Fury/Wrath оружия*
+`!wcup` {ролл} > {upg} {y/n} {reforge}
+
 *Броня:* 
 `!wfz` / `!wz` / `!whk` / `!wk`
 
@@ -4276,7 +4782,7 @@ def get_l_page_text():
 *Прогноз и сравнение актуальных и желаемых характеристик предмета (!l...)*
 
 *Оружие:*
-`!lconq` / `!ldoom` / `!lasc` / `!ltl` (Формула n)
+`!lconq` / `!ldoom` / `!lasc` / `!ltl` / `!lcup`
 
 `Формула 1`: *{ролл} - {upg1} {y/n1} {reforge1} > {upg2} {y/n2} {reforge2}*
 - для сравнения одного оружия с разными характеристиками
@@ -4626,6 +5132,37 @@ async def unified_callback_handler(update: Update, context: ContextTypes.DEFAULT
                 print(f"Ошибка при редактировании tlr: {e}")
             return
 
+    # === ОБРАБОТЧИК ДЛЯ !cupr ===
+    if prefix == CALLBACK_PREFIX_CUPR:
+        # Закрытие
+        if action == "close":
+            await query.message.delete()
+            if user_message_id:
+                try:
+                    await context.bot.delete_message(
+                        chat_id=query.message.chat_id,
+                        message_id=user_message_id
+                    )
+                except:
+                    pass
+            return
+
+        # Переключение страниц
+        if action in (CALLBACK_CUPR_FURY, CALLBACK_CUPR_WRATH):
+            text = format_cup_table_text(action)
+            keyboard = get_cup_table_keyboard(action, user_message_id)
+
+            try:
+                await query.message.edit_text(
+                    text=text,
+                    parse_mode=ParseMode.MARKDOWN_V2,
+                    reply_markup=keyboard,
+                    disable_web_page_preview=True
+                )
+            except Exception as e:
+                print(f"Ошибка при редактировании cupr: {e}")
+            return
+
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed_thread(update):
         return
@@ -4957,25 +5494,28 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # --- ОСНОВНЫЕ КОМАНДЫ (все остальные) ---
-    if command in ("conq", "doom", "asc", "tl"):
+    if command in ("conq", "doom", "asc", "tl", "cup"):  # 🔧 Добавлен "cup"
         await analyze_weapon(update, context,
                              "cb" if command == "conq" else
                              "db" if command == "doom" else
-                             "asc_ws" if command == "asc" else "tl")
+                             "asc_ws" if command == "asc" else
+                             "tl" if command == "tl" else "cup")
 
-        # Прогноз оружия
-    elif command in ("wconq", "wdoom", "wasc", "wtl"):
+    # Прогноз оружия
+    elif command in ("wconq", "wdoom", "wasc", "wtl", "wcup"):
         await w_analyze_weapon(update, context,
                                "cb" if command == "wconq" else
                                "db" if command == "wdoom" else
-                               "asc_ws" if command == "wasc" else "tl")
+                               "asc_ws" if command == "wasc" else
+                               "tl" if command == "wtl" else "cup")
 
-        # Сравнение оружия
-    elif command in ("lconq", "ldoom", "lasc", "ltl"):
+    # Сравнение оружия
+    elif command in ("lconq", "ldoom", "lasc", "ltl", "lcup"):
         await l_analyze_weapon(update, context,
                                "cb" if command == "lconq" else
                                "db" if command == "ldoom" else
-                               "asc_ws" if command == "lasc" else "tl")
+                               "asc_ws" if command == "lasc" else
+                               "tl" if command == "ltl" else "cup")
 
     # Броня
     elif command == "fz":
@@ -5011,6 +5551,8 @@ async def bang_router(update, context: ContextTypes.DEFAULT_TYPE):
     elif command == "tlr":
         await tl_table_command(update, context)
         return
+    elif command == "cupr":
+        await cup_table_command(update, context)
     elif command == "conqr":
         await update.message.reply_text(
             text=format_sword_table_text("CONQUEROR_ROLLS", CONQUERORS_BLADE_STATS, "normal"),
@@ -5090,7 +5632,7 @@ def main():
     app.add_handler(
         CallbackQueryHandler(
             weapon_analysis_callback,
-            pattern="^(normal|tl|asc|wnormal|wtl|wasc|lnormal|ltl|lasc|close):"
+            pattern="^(normal|tl|asc|cup|wnormal|wtl|wasc|wcup|lnormal|ltl|lasc|lcup|close):"
         ),
         group=0
     )
