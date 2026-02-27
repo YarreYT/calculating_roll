@@ -261,7 +261,7 @@ ITEMS_MAPPING = {
         "stats": HKR_STATS,
         "type": "armor_set",
         "category": "armor",
-        "max_level": 99
+        "max_level": 44
     },
     "ks": {
         "name": "Kronax Set",
@@ -292,4 +292,5 @@ PART_MAPPING = {
     "chest": "Chestplate",
     "legs": "Leggings"   # ← добавь это
 }
+
 
