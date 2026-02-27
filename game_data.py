@@ -34,6 +34,12 @@ TIMELOST_CONQUERORS_BLADE_LE_STATS = {
     6: 9371.33, 7: 9460.56, 8: 9549.79, 9: 9639.02, 10: 9728.24, 11: 9817.47
 }
 
+# --- CUPID WEAPONS ---
+CUPIDS_FURY_STATS = {
+    1: 4462.5, 2: 4507.125, 3: 4551.75, 4: 4596.375, 5: 4641,
+    6: 4685.625, 7: 4730.25, 8: 4774.875, 9: 4819.5, 10: 4864.125, 11: 4908.75
+}
+
 DIFFERENT_PROCENT_CHECK = 4.7619  # Для определения L.E. версии
 
 # --- B. БРОНЯ (ХП) ---
@@ -116,7 +122,19 @@ reforges = [
     {"name": "Murderous", "dmg": "-10%", "crit": "-10%", "knk": "-30%"}
 ]
 
-ASC_BASE_UPGRADE_COST = 2957
+UPGRADE_COSTS = {
+    1: 500, 2: 1500, 3: 2750, 4: 4000, 5: 6000, 6: 8000, 7: 10500, 8: 13000, 9: 15500, 10: 18000,
+    11: 21000, 12: 24500, 13: 28000, 14: 32000, 15: 35000, 16: 45000, 17: 57500, 18: 70000, 19: 73000, 20: 88000,
+    21: 100000, 22: 150000, 23: 250000, 24: 400000, 25: 550000, 26: 700000, 27: 900000, 28: 1100000, 29: 1300000, 30: 1800000,
+    31: 2300000, 32: 2800000, 33: 3300000, 34: 3800000, 35: 4300000, 36: 4800000, 37: 5300000, 38: 5800000, 39: 6300000, 40: 6800000,
+    41: 7300000, 42: 7800000, 43: 8300000, 44: 8800000, 45: 9300000, 46: 9800000, 47: 10300000, 48: 10800000, 49: 11300000, 50: 11800000,
+    51: 12300000, 52: 12800000, 53: 13300000, 54: 13800000, 55: 14300000, 56: 14800000, 57: 15300000, 58: 15800000, 59: 16300000, 60: 16800000,
+    61: 17300000, 62: 17800000, 63: 18300000, 64: 18800000, 65: 19300000, 66: 19800000, 67: 20300000, 68: 20800000, 69: 21300000, 70: 21800000,
+    71: 22300000, 72: 22800000, 73: 23300000, 74: 23800000, 75: 24300000, 76: 24800000, 77: 25300000, 78: 25800000, 79: 26300000, 80: 26800000,
+    81: 27800000, 82: 28800000, 83: 29800000, 84: 30800000, 85: 31800000, 86: 32800000, 87: 33800000, 88: 34800000, 89: 35800000, 90: 36800000,
+    91: 37800000, 92: 38800000, 93: 39800000, 94: 40800000, 95: 41800000, 96: 42800000, 97: 43800000, 98: 44800000, 99: 45800000
+}
+
 WOODEN_SWORD_BASE = 11550
 
 # Заменить ASC_WEAPON_TYPES на:
@@ -138,15 +156,13 @@ ITEMS_MAPPING = {
         "stats": CONQUERORS_BLADE_STATS,
         "type": "weapon",
         "category": "normal",
-        "upgrade_cost_lvl1": 2535,
-        "max_level": 45
+        "max_level": 44
     },
     "db": {
         "name": "Doombringer",
         "stats": DOOMBRINGER_STATS,
         "type": "weapon",
         "category": "normal",
-        "upgrade_cost_lvl1": 2112,
         "max_level": 34
     },
 
@@ -157,8 +173,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "ws",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_mb": {
         "name": "Menta Blade V2",
@@ -166,8 +181,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "mb",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_lk": {
         "name": "Lightning Katana V2",
@@ -175,8 +189,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "lk",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_me": {
         "name": "Magma's Edge V2",
@@ -184,8 +197,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "me",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_at": {
         "name": "Abyssal Trident",
@@ -193,8 +205,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "pt",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_ad": {
         "name": "Ascended Daggers",
@@ -202,8 +213,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "dd",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
     "asc_av": {
         "name": "Ascended Voidblade",
@@ -211,8 +221,7 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "asc",
         "weapon_key": "av",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
-        "max_level": 44,
+        "max_level": 74,
     },
 
     # --- TIMELOST ОРУЖИЕ ---
@@ -221,8 +230,7 @@ ITEMS_MAPPING = {
         "stats": TIMELOST_CONQUERORS_BLADE_STATS,
         "type": "weapon",
         "category": "tl",
-        "upgrade_cost_lvl1": 2535,
-        "max_level": 45
+        "max_level": 44
     },
     "tl_le": {
         "name": "Timelost Conqueror's Blade (Limited Edition)",
@@ -230,7 +238,6 @@ ITEMS_MAPPING = {
         "type": "asc_weapon",
         "category": "tl",
         "weapon_key": "tl_le",
-        "upgrade_cost_lvl1": ASC_BASE_UPGRADE_COST,
         "max_level": 44,
     },
 
@@ -240,7 +247,6 @@ ITEMS_MAPPING = {
         "stats": FZH_STATS,
         "type": "armor_set",
         "category": "armor",
-        "upgrade_cost_lvl1": 2535,
         "max_level": 45
     },
     "lzs": {
@@ -248,7 +254,6 @@ ITEMS_MAPPING = {
         "stats": LZS_STATS,
         "type": "armor_set",
         "category": "armor",
-        "upgrade_cost_lvl1": 2112,
         "max_level": 34
     },
     "hks": {
@@ -256,17 +261,30 @@ ITEMS_MAPPING = {
         "stats": HKR_STATS,
         "type": "armor_set",
         "category": "armor",
-        "upgrade_cost_lvl1": 2957,
-        "max_level": 44
+        "max_level": 99
     },
     "ks": {
         "name": "Kronax Set",
         "stats": KR_STATS,
         "type": "armor_set",
         "category": "armor",
-        "upgrade_cost_lvl1": 2535,
         "max_level": 44
     },
+    "cup": {
+        "name": "Cupid's Fury",
+        "stats": CUPIDS_FURY_STATS,
+        "type": "weapon",
+        "category": "cup",
+        "max_level": 74
+    },
+    "cup_sw": {
+        "name": "Cupid's Wrath",
+        "stats": DOOMBRINGER_STATS,
+        "type": "weapon",
+        "category": "cup",
+        "weapon_key": "cup_sw",
+        "max_level": 99
+    }
 }
 # Маппинг частей брони
 PART_MAPPING = {
