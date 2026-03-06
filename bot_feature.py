@@ -26,7 +26,6 @@ from game_data import (
     ITEMS_MAPPING,
     PART_MAPPING,
     WOODEN_SWORD_BASE,
-    DIFFERENT_PROCENT_CHECK,  # ДОБАВЬТЕ ЭТУ КОНСТАНТУ
     DUAL_DAGGERS_V2_STATS,
     TIMELOST_CONQUERORS_BLADE_STATS,
     TIMELOST_CONQUERORS_BLADE_LE_STATS,
@@ -212,59 +211,63 @@ ASC_WEAPON_SHORT_NAMES = {
 
 DUAL_DAGGERS_THRESHOLD_PERCENT = 4.7619
 
-def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge_mult: float) -> tuple:
-    """Возвращает (base_dmg, roll, weapon_type) где weapon_type: 'ws', 'ad' или 'regular'"""
 
+def find_base_damage_for_asc(dmg: float, level: int, is_corrupted: bool, reforge_mult: float) -> tuple:
+    """
+    Определяет базовый урон для ASC оружия.
+    Returns: (base_dmg, roll, weapon_type) где weapon_type: 'ws', 'ad' или 'regular'
+
+    Логика: 3 группы значений (Wooden Sword, Dual Daggers, 5 одинаковых мечей)
+    """
     inferred_base = infer_base_for_weapon(dmg, level, is_corrupted, reforge_mult)
 
-    if inferred_base > 0:
-        percent_diff_ws = abs(WOODEN_SWORD_BASE - inferred_base) / WOODEN_SWORD_BASE * 100
-    else:
-        percent_diff_ws = float('inf')
+    # 1. Wooden Sword V2 - фиксированный ролл 11
+    ws_base = WOODEN_SWORD_BASE
+    diff_ws = abs(ws_base - inferred_base)
 
-    if percent_diff_ws <= DIFFERENT_PROCENT_CHECK:
-        return WOODEN_SWORD_BASE, 11, "ws"  # Прямая база 11550
+    # 2. Dual Daggers V2 - ищем ближайший ролл 6-11
+    best_roll_ad = 6
+    best_diff_ad = float('inf')
 
-    # 2. Проверка на Dual Daggers V2 (без изменений)
-    ad_best_roll = 6
-    ad_best_diff = abs(DUAL_DAGGERS_V2_STATS[6] - inferred_base)
+    for roll in range(6, 12):
+        diff = abs(DUAL_DAGGERS_V2_STATS[roll] - inferred_base)
+        if diff < best_diff_ad:
+            best_diff_ad = diff
+            best_roll_ad = roll
 
-    for r in range(7, 12):
-        diff = abs(DUAL_DAGGERS_V2_STATS[r] - inferred_base)
-        if diff < ad_best_diff:
-            ad_best_diff = diff
-            ad_best_roll = r
+    ad_base = DUAL_DAGGERS_V2_STATS[best_roll_ad]
 
-    ad_base_value = DUAL_DAGGERS_V2_STATS[ad_best_roll]
+    # 3. Остальные 5 мечей (M.B., L.K., M.E., A.T., A.V.) - одинаковые базы = Conqueror's Blade
+    best_roll_regular = 6
+    best_diff_regular = float('inf')
 
-    if inferred_base > 0:
-        percent_diff_ad = abs(inferred_base - ad_base_value) / ad_base_value * 100
-    else:
-        percent_diff_ad = float('inf')
+    for roll in range(6, 12):
+        diff = abs(CONQUERORS_BLADE_STATS[roll] - inferred_base)
+        if diff < best_diff_regular:
+            best_diff_regular = diff
+            best_roll_regular = roll
 
-    if percent_diff_ad <= DUAL_DAGGERS_THRESHOLD_PERCENT:
-        return ad_base_value, ad_best_roll, "ad"
+    regular_base = CONQUERORS_BLADE_STATS[best_roll_regular]
 
-    # 3. Обычные мечи (без изменений)
-    best_roll = 6
-    best_diff = abs(CONQUERORS_BLADE_STATS[6] - inferred_base)
+    # Сравниваем 3 кандидатов
+    diffs = [
+        (diff_ws, ws_base, 11, "ws"),
+        (best_diff_ad, ad_base, best_roll_ad, "ad"),
+        (best_diff_regular, regular_base, best_roll_regular, "regular")
+    ]
 
-    for r in range(7, 12):
-        diff = abs(CONQUERORS_BLADE_STATS[r] - inferred_base)
-        if diff < best_diff:
-            best_diff = diff
-            best_roll = r
+    # Сортируем по расстоянию и берём минимальное
+    diffs.sort(key=lambda x: x[0])
+    _, base_dmg, roll, weapon_type = diffs[0]
 
-    return CONQUERORS_BLADE_STATS[best_roll], best_roll, "regular"
+    return base_dmg, roll, weapon_type
+
 
 def find_timelost_type(inferred_base: float) -> tuple:
     """
-    Определяет тип Timelost оружия.
+    Определяет тип Timelost оружия по принципу ближайшего соседа.
     Returns: (item_key, roll, base_dmg, is_le)
     """
-    # Добавляем 4.7619% для проверки
-    check_value = inferred_base * (1 + DIFFERENT_PROCENT_CHECK / 100)
-
     # Ищем ближайший ролл в обычном Timelost
     best_roll_tl = 1
     best_diff_tl = float('inf')
@@ -285,23 +288,21 @@ def find_timelost_type(inferred_base: float) -> tuple:
             best_diff_le = diff
             best_roll_le = roll
 
-    # Получаем базовые значения
+    # Получаем базовые значения победителей
     tl_base = TIMELOST_CONQUERORS_BLADE_STATS[best_roll_tl]
     le_base = TIMELOST_CONQUERORS_BLADE_LE_STATS[best_roll_le]
 
-    # Проверка: check_value >= базе L.E.?
-    # Используем ближайший ролл L.E. для сравнения
-    if check_value >= le_base:
-        # Это Limited Edition
+    # Сравниваем кто ближе к inferred_base
+    if best_diff_le <= best_diff_tl:
+        # LE ближе (или равно)
         return "tl_le", best_roll_le, le_base, True
     else:
-        # Это обычный Timelost
+        # Обычный TL ближе
         return "tl", best_roll_tl, tl_base, False
-
 
 def find_cupid_type(inferred_base: float) -> tuple:
     """
-    Определяет тип Cupid оружия (Fury или Wrath).
+    Определяет тип Cupid оружия (Fury vs Wrath) по принципу ближайшего соседа.
     Returns: (item_key, roll, base_dmg, is_wrath)
     """
     # Ищем ближайший ролл в Cupid's Fury (Mythic)
@@ -314,12 +315,12 @@ def find_cupid_type(inferred_base: float) -> tuple:
             best_diff_fury = diff
             best_roll_fury = roll
 
-    # Ищем ближайший ролл в Cupid's Wrath (Secret)
+    # Ищем ближайший ролл в Cupid's Wrath (Secret = Doombringer)
     best_roll_wrath = 1
     best_diff_wrath = float('inf')
 
     for roll in range(1, 12):
-        diff = abs([roll] - inferred_base)
+        diff = abs(DOOMBRINGER_STATS[roll] - inferred_base)
         if diff < best_diff_wrath:
             best_diff_wrath = diff
             best_roll_wrath = roll
@@ -328,18 +329,17 @@ def find_cupid_type(inferred_base: float) -> tuple:
     fury_base = CUPIDS_FURY_STATS[best_roll_fury]
     wrath_base = DOOMBRINGER_STATS[best_roll_wrath]
 
-    # Cupid's Wrath имеет более высокий базовый урон
-    # Если inferred_base близок к Wrath и выше Fury - это Wrath
-    if best_diff_wrath <= best_diff_fury and inferred_base >= (fury_base + wrath_base) / 2:
+    # Сравниваем кто ближе
+    if best_diff_wrath <= best_diff_fury:
+        # Wrath ближе (или равно)
         return "cup_sw", best_roll_wrath, wrath_base, True
     else:
+        # Fury ближе
         return "cup", best_roll_fury, fury_base, False
-
 
 def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: bool, reforge_mult: float) -> dict:
     """
-    Определяет реальный тип оружия и параметры.
-    Для Cupid: проверяем и уровень, и урон для точного определения
+    Определяет реальный тип оружия и параметры по принципу ближайшего соседа.
     """
     result = {
         "item_key": item_key,
@@ -362,7 +362,7 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
     result["weapon_category"] = category
 
     if category == "tl":
-        # Timelost - без изменений
+        # Timelost - ближайший сосред между TL и LE
         inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
         detected_key, roll, base_dmg, is_le = find_timelost_type(inferred_base)
         result["item_key"] = detected_key
@@ -372,7 +372,7 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
         result["is_le"] = is_le
 
     elif category == "asc":
-        # ASC - без изменений
+        # ASC - ближайший сосред между 3 группами (WS, AD, 5 мечей)
         base_dmg, roll, weapon_type = find_base_damage_for_asc(damage, level, corrupted, reforge_mult)
         result["roll"] = roll
         result["base_dmg"] = base_dmg
@@ -388,109 +388,24 @@ def determine_weapon_type(item_key: str, damage: float, level: int, corrupted: b
             result["item_key"] = "asc_ad"
             result["display_key"] = "asc_ad"
         else:
-            chosen = random.choice(["mb", "lk", "me", "at"])
+            # Один из 5 мечей - выбираем случайно для UI
+            chosen = random.choice(["mb", "lk", "me", "at", "av"])
             result["active_weapon"] = chosen
             result["item_key"] = f"asc_{chosen}"
             result["display_key"] = result["item_key"]
 
     elif category == "cup":
-        # Cupid - УМНОЕ определение Fury vs Wrath
+        # Cupid - ближайший сосред между Fury и Wrath
         inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
-
-        # Ищем ближайший ролл в Fury
-        best_roll_fury = 1
-        best_diff_fury = float('inf')
-        for roll in range(1, 12):
-            diff = abs(CUPIDS_FURY_STATS[roll] - inferred_base)
-            if diff < best_diff_fury:
-                best_diff_fury = diff
-                best_roll_fury = roll
-
-        # Ищем ближайший ролл в Wrath
-        best_roll_wrath = 1
-        best_diff_wrath = float('inf')
-        for roll in range(1, 12):
-            diff = abs(DOOMBRINGER_STATS[roll] - inferred_base)
-            if diff < best_diff_wrath:
-                best_diff_wrath = diff
-                best_roll_wrath = roll
-
-        # Порог определения (4.7619% как у других оружий)
-        threshold_percent = DIFFERENT_PROCENT_CHECK
-
-        fury_base = CUPIDS_FURY_STATS[best_roll_fury]
-        wrath_base = DOOMBRINGER_STATS[best_roll_wrath]
-
-        # Проверяем, какому типу ближе урон
-        if inferred_base > 0:
-            percent_diff_fury = abs(inferred_base - fury_base) / fury_base * 100
-            percent_diff_wrath = abs(inferred_base - wrath_base) / wrath_base * 100
-        else:
-            percent_diff_fury = float('inf')
-            percent_diff_wrath = float('inf')
-
-        # 🔧 КОМБИНИРОВАННАЯ ЛОГИКА:
-        # 1. Если урон явно ближе к Fury (в пределах порога) - это Fury
-        # 2. Если урон явно ближе к Wrath (в пределах порога) - это Wrath
-        # 3. Если урон посередине - используем уровень как подсказку
-
-        is_fury_by_damage = percent_diff_fury <= threshold_percent
-        is_wrath_by_damage = percent_diff_wrath <= threshold_percent
-
-        if is_fury_by_damage and not is_wrath_by_damage:
-            # Однозначно Fury по урону
-            is_wrath = False
-            best_roll = best_roll_fury
-            base_dmg = fury_base
-        elif is_wrath_by_damage and not is_fury_by_damage:
-            # Однозначно Wrath по урону
-            is_wrath = True
-            best_roll = best_roll_wrath
-            base_dmg = wrath_base
-        elif is_fury_by_damage and is_wrath_by_damage:
-            # Оба подходят (маловероятно, но возможно на границе)
-            # Выбираем тот, что ближе по проценту
-            if percent_diff_fury <= percent_diff_wrath:
-                is_wrath = False
-                best_roll = best_roll_fury
-                base_dmg = fury_base
-            else:
-                is_wrath = True
-                best_roll = best_roll_wrath
-                base_dmg = wrath_base
-        else:
-            # Урон не соответствует ни одному точно
-            # Используем уровень как подсказку + ближайший по урону
-            if level >= 75:
-                # Высокий уровень намекает на Wrath, но проверим на всякий случай
-                # Если Fury ОЧЕНЬ близко, а Wrath далеко - возможно ошибка ввода
-                if percent_diff_fury < percent_diff_wrath * 0.5:  # Fury значительно ближе
-                    is_wrath = False
-                    best_roll = best_roll_fury
-                    base_dmg = fury_base
-                else:
-                    is_wrath = True
-                    best_roll = best_roll_wrath
-                    base_dmg = wrath_base
-            else:
-                # Низкий уровень - выбираем по ближайшему урону
-                if percent_diff_fury <= percent_diff_wrath:
-                    is_wrath = False
-                    best_roll = best_roll_fury
-                    base_dmg = fury_base
-                else:
-                    is_wrath = True
-                    best_roll = best_roll_wrath
-                    base_dmg = wrath_base
-
-        result["item_key"] = "cup_sw" if is_wrath else "cup"
-        result["display_key"] = result["item_key"]
-        result["roll"] = best_roll
+        detected_key, roll, base_dmg, is_wrath = find_cupid_type(inferred_base)
+        result["item_key"] = detected_key
+        result["display_key"] = detected_key
+        result["roll"] = roll
         result["base_dmg"] = base_dmg
         result["is_wrath"] = is_wrath
 
     else:
-        # Обычное оружие
+        # Обычное оружие (Conq, Doom и т.д.)
         base_stats = item_info['stats']
         inferred_base = infer_base_for_weapon(damage, level, corrupted, reforge_mult)
         roll = determine_roll(base_stats, inferred_base)
@@ -1459,11 +1374,16 @@ async def analyze_weapon(update: Update, context: ContextTypes.DEFAULT_TYPE, ite
 
         # 🔧 ВАЛИДАЦИЯ: Проверяем соответствие уровня типу оружия
         if weapon_info["weapon_category"] == "cup":
-            if not is_wrath and upg_level > 74:
+            detected_max_level = item_info['max_level']
+
+            if upg_level > detected_max_level:
+                # Пытался наебать систему
+                type_name = "Cupid's Fury" if not weapon_info["is_wrath"] else "Cupid's Wrath"
+
                 error_message = (
                     f"🛑 **Обнаружены ошибки формата для {command_name}:**\n"
                     f"❌ Несоответствие данных!\n\n"
-                    f"По урону {damage:,.0f} это **Cupid's Fury** (макс. ур. 74)\n"
+                    f"По урону {damage:,.0f} это **{type_name}** (макс. ур. {detected_max_level})\n"
                     f"Но ты указал уровень **{upg_level}**\n\n"
                     f"Наебать пытался? Пиздабол."
                 )
@@ -4667,6 +4587,9 @@ def get_main_page_text():
 
 *Общие правила:*
 (y/n): y - corrupted, n - НЕ corrupted.
+
+*ВЕБ-ВЕРСИЯ ЭТОГО ЖЕ БОТА, МЕЖДУНАРОДНАЯ:*
+https://yarreyt.github.io/EDUCRB/
 
 *Таблицы роллов:*
 `!crhelp` - Показать это меню
